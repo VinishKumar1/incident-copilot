@@ -23,6 +23,7 @@ log = logging.getLogger("analytics")
 # ─── Backend selection ────────────────────────────────────────────────────────
 
 _USE_POSTGRES = bool(settings.database_url)
+_pg_available = False  # set True only after successful init
 
 # ─── PostgreSQL backend (asyncpg) ────────────────────────────────────────────
 
@@ -37,9 +38,15 @@ async def _get_pg_pool():
     # asyncpg uses 'ssl=require' not '?ssl=true' — normalise
     if url.endswith("?ssl=true") or url.endswith("&ssl=true"):
         url = url.rsplit("?ssl", 1)[0].rsplit("&ssl", 1)[0]
-        _pg_pool = await asyncpg.create_pool(url, ssl="require", min_size=1, max_size=5)
+        _pg_pool = await asyncpg.create_pool(
+            url, ssl="require", min_size=1, max_size=5,
+            command_timeout=10, timeout=10,
+        )
     else:
-        _pg_pool = await asyncpg.create_pool(url, min_size=1, max_size=5)
+        _pg_pool = await asyncpg.create_pool(
+            url, min_size=1, max_size=5,
+            command_timeout=10, timeout=10,
+        )
     return _pg_pool
 
 
@@ -184,7 +191,7 @@ def _sqlite_stats(since_hours: int) -> dict:
 def _build_stats(since_hours, total_events, unique_users, logins, searches,
                  analyses, ns_changes, top_users, action_counts, recent, hourly) -> dict:
     return {
-        "backend": "postgres" if _USE_POSTGRES else "sqlite",
+        "backend": "postgres" if (_USE_POSTGRES and _pg_available) else "sqlite",
         "since_hours": since_hours,
         "total_events": total_events,
         "unique_users": unique_users,
@@ -202,14 +209,19 @@ def _build_stats(since_hours, total_events, unique_users, logins, searches,
 # ─── Public API (called by main.py middleware and routes/analytics.py) ────────
 
 async def init_analytics() -> None:
-    """Called once at startup to create tables if they don't exist."""
+    """Called once at startup. Falls back to SQLite if Postgres is unreachable."""
+    global _pg_available
     if _USE_POSTGRES:
         try:
             pool = await _get_pg_pool()
             await _init_pg(pool)
+            _pg_available = True
             log.info("analytics: connected to PostgreSQL ✅")
         except Exception as exc:
-            log.error("analytics: PostgreSQL init failed — %s", exc)
+            _pg_available = False
+            log.warning("analytics: PostgreSQL unavailable (%s) — falling back to SQLite", exc)
+            _get_sqlite()
+            log.info("analytics: using SQLite at %s (fallback)", _DB_PATH)
     else:
         _get_sqlite()
         log.info("analytics: using SQLite at %s", _DB_PATH)
@@ -217,13 +229,13 @@ async def init_analytics() -> None:
 
 async def record_event(user_email: str, user_name: str, action: str, detail: str = "") -> None:
     """Insert a usage event. Never raises — analytics must not break the app."""
-    if _USE_POSTGRES:
+    if _USE_POSTGRES and _pg_available:
         await _pg_record(user_email, user_name, action, detail)
     else:
         _sqlite_record(user_email, user_name, action, detail)
 
 
 async def get_stats(since_hours: int = 24) -> dict:
-    if _USE_POSTGRES:
+    if _USE_POSTGRES and _pg_available:
         return await _pg_stats(since_hours)
     return _sqlite_stats(since_hours)

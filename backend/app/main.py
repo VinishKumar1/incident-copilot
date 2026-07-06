@@ -99,7 +99,10 @@ async def track_usage(request: Request, call_next):
         return response  # don't log polling noise (/api/issues, /api/status)
 
     await record_event(email, name, action, detail)
-    return response@app.get("/healthz")
+    return response
+
+
+@app.get("/healthz")
 async def healthz():
     return {"ok": True}
 
