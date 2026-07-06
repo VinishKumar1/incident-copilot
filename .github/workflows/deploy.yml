@@ -52,6 +52,9 @@ jobs:
       - name: Apply ConfigMap
         run: kubectl apply -f k8s/configmap.yaml
 
+      - name: Apply SecretProviderClass (Key Vault CSI)
+        run: kubectl apply -f k8s/secret-provider.yaml
+
       - name: Deploy backend
         run: |
           TAG=${{ github.event.inputs.image_tag || 'latest' }}

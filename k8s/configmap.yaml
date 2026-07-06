@@ -1,6 +1,7 @@
 # =============================================================
 # Telikos First Responder — Kubernetes ConfigMap
-# Non-secret config only. Secrets go in a K8s Secret (see deploy.yaml).
+# Non-secret config only.
+# Secrets are injected via Azure Key Vault CSI (see secret-provider.yaml).
 # Namespace: iom-preprod
 # =============================================================
 apiVersion: v1
@@ -24,3 +25,10 @@ data:
   SSO_ENABLED: "true"
   AZURE_AD_TENANT_ID: "05d75c05-fa1a-42e7-9cf1-eb416c396f2d"
   AZURE_AD_CLIENT_ID: "fdb5c5f4-d589-495b-8b84-c0f3abad2eb0"
+  # Key Vault secret name mappings — update values to match your vault secret names
+  KV_SECRET_GRAFANA_TOKEN: "REPLACE_WITH_KV_SECRET_NAME"
+  KV_SECRET_OPENAI_API_KEY: "REPLACE_WITH_KV_SECRET_NAME"
+  KV_SECRET_DATABASE_URL: "REPLACE_WITH_KV_SECRET_NAME"
+  KV_SECRET_ARM_CLIENT_ID: "REPLACE_WITH_KV_SECRET_NAME"
+  KV_SECRET_ARM_CLIENT_SECRET: "REPLACE_WITH_KV_SECRET_NAME"
+  KV_SECRET_ARM_TENANT_ID: "REPLACE_WITH_KV_SECRET_NAME"

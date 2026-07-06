@@ -33,7 +33,14 @@ spec:
             - configMapRef:
                 name: tfr-config
             - secretRef:
-                name: tfr-secrets
+                name: tfr-secrets   # created by SecretProviderClass (secret-provider.yaml)
+          volumeMounts:
+            # CSI volume mount is required to trigger secret sync from Key Vault.
+            # Secrets are exposed as env vars via the secretObjects block above,
+            # not read directly from this mount path.
+            - name: kv-secrets
+              mountPath: /mnt/secrets
+              readOnly: true
           resources:
             requests:
               cpu: 100m
@@ -60,6 +67,13 @@ spec:
           securityContext:
             runAsUser: 15000
             runAsNonRoot: true
+      volumes:
+        - name: kv-secrets
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: tfr-secret-provider
 
 ---
 apiVersion: v1
