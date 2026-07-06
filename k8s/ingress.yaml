@@ -1,0 +1,29 @@
+# =============================================================
+# Telikos First Responder — Ingress
+# Namespace: iom-preprod
+# =============================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tfr-ingress
+  namespace: iom-preprod
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "120"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: telikos-first-responder.sit.maersk-digital.net
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: tfr-frontend
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - telikos-first-responder.sit.maersk-digital.net
+      secretName: tls-wildcard-maersk-digital-net

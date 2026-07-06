@@ -1,0 +1,88 @@
+name: Deploy to Kubernetes
+
+on:
+  workflow_run:
+    workflows: ["Build & Push Docker Images"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Image tag to deploy (default: latest)'
+        required: false
+        default: 'latest'
+
+env:
+  NAMESPACE: iom-preprod
+  CLUSTER_NAME: ohp-np-west-1
+  RESOURCE_GROUP: rgpazewdaks01ohpdev
+  BACKEND_IMAGE: ghcr.io/maersk-global/iom/tfr-backend
+  FRONTEND_IMAGE: ghcr.io/maersk-global/iom/tfr-frontend
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Set AKS context
+        uses: azure/aks-set-context@v4
+        with:
+          resource-group: ${{ env.RESOURCE_GROUP }}
+          cluster-name: ${{ env.CLUSTER_NAME }}
+          admin: false
+          use-kubelogin: true
+
+      - name: Verify cluster connection
+        run: kubectl cluster-info
+
+      - name: Ensure namespace exists
+        run: |
+          kubectl get namespace ${{ env.NAMESPACE }} \
+            || kubectl create namespace ${{ env.NAMESPACE }}
+
+      - name: Apply ConfigMap
+        run: kubectl apply -f k8s/configmap.yaml
+
+      - name: Deploy backend
+        run: |
+          TAG=${{ github.event.inputs.image_tag || 'latest' }}
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            TAG=$(echo "${{ github.event.workflow_run.head_sha }}" | cut -c1-7)
+          fi
+          sed "s|:latest|:${TAG}|g" k8s/backend.yaml | kubectl apply -f -
+
+      - name: Deploy frontend
+        run: |
+          TAG=${{ github.event.inputs.image_tag || 'latest' }}
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            TAG=$(echo "${{ github.event.workflow_run.head_sha }}" | cut -c1-7)
+          fi
+          sed "s|:latest|:${TAG}|g" k8s/frontend.yaml | kubectl apply -f -
+
+      - name: Apply Ingress
+        run: kubectl apply -f k8s/ingress.yaml
+
+      - name: Wait for backend rollout
+        run: |
+          kubectl rollout status deployment/tfr-backend \
+            -n ${{ env.NAMESPACE }} --timeout=120s
+
+      - name: Wait for frontend rollout
+        run: |
+          kubectl rollout status deployment/tfr-frontend \
+            -n ${{ env.NAMESPACE }} --timeout=120s
+
+      - name: Summary
+        run: |
+          echo "✅ Deployment complete!"
+          echo "🌐 App: https://telikos-first-responder.sit.maersk-digital.net"
+          kubectl get pods -n ${{ env.NAMESPACE }} -l 'app in (tfr-backend,tfr-frontend)'

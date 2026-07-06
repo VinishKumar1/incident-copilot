@@ -1,0 +1,75 @@
+# =============================================================
+# Telikos First Responder — Backend Deployment + Service
+# Namespace: iom-preprod
+# =============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tfr-backend
+  namespace: iom-preprod
+  labels:
+    app: tfr-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tfr-backend
+  template:
+    metadata:
+      labels:
+        app: tfr-backend
+    spec:
+      serviceAccountName: ohpiom-np-sa
+      imagePullSecrets:
+        - name: image-pull-secret
+        - name: harbor-read-only
+      containers:
+        - name: backend
+          image: ghcr.io/maersk-global/iom/tfr-backend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8077
+          envFrom:
+            - configMapRef:
+                name: tfr-config
+            - secretRef:
+                name: tfr-secrets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8077
+            initialDelaySeconds: 30
+            timeoutSeconds: 10
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8077
+            initialDelaySeconds: 15
+            timeoutSeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          securityContext:
+            runAsUser: 15000
+            runAsNonRoot: true
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tfr-backend
+  namespace: iom-preprod
+spec:
+  selector:
+    app: tfr-backend
+  ports:
+    - port: 8077
+      targetPort: 8077

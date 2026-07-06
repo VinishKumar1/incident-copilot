@@ -1,0 +1,767 @@
+import React, { useEffect, useRef, useState } from 'react'
+import { getStatus, listIssues, analyzeIssue, sendChat, listNamespaces, setNamespace, matchCode, fixIt, searchKey, searchSummary, createAdhocIssue, getNamespaceSummary } from './api'
+
+const REFRESH_MS = 5000
+
+function timeAgo(ts) {
+  const s = Math.max(0, Math.floor(Date.now() / 1000 - ts))
+  if (s < 60) return `${s}s ago`
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`
+  return `${Math.floor(s / 3600)}h ago`
+}
+
+// Minimal, safe markdown for chat bubbles: **bold**, `code`, and "- " bullets.
+function renderInline(text) {
+  const parts = []
+  const re = /\*\*([^*]+)\*\*|`([^`]+)`/g
+  let last = 0, m, k = 0
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) parts.push(text.slice(last, m.index))
+    if (m[1] !== undefined) parts.push(<strong key={k++}>{m[1]}</strong>)
+    else parts.push(<code key={k++}>{m[2]}</code>)
+    last = re.lastIndex
+  }
+  if (last < text.length) parts.push(text.slice(last))
+  return parts
+}
+
+function Markdown({ text }) {
+  const lines = (text || '').split('\n')
+  const blocks = []
+  let list = null, k = 0
+  const flush = () => { if (list) { blocks.push(<ul key={`u${k++}`}>{list}</ul>); list = null } }
+  lines.forEach((ln, idx) => {
+    const bullet = ln.match(/^\s*[-*]\s+(.*)/)
+    if (bullet) {
+      if (!list) list = []
+      list.push(<li key={idx}>{renderInline(bullet[1])}</li>)
+    } else if (ln.trim() === '') {
+      flush()
+    } else {
+      flush()
+      blocks.push(<div key={idx} className="md-line">{renderInline(ln.replace(/^#{1,6}\s*/, ''))}</div>)
+    }
+  })
+  flush()
+  return <>{blocks}</>
+}
+
+function Spinner({ size = 16 }) {
+  return <span className="spinner" style={{ width: size, height: size }} role="status" aria-label="loading" />
+}
+
+function TypingDots() {
+  return (
+    <span className="dots" aria-label="thinking">
+      <i /><i /><i />
+    </span>
+  )
+}
+
+// Shows how long since the last successful poll; turns red if polling has stalled.
+function FreshnessPill({ ts }) {
+  if (!ts) return null
+  const age = Math.max(0, Math.floor(Date.now() / 1000 - ts))
+  const stale = age > 45 // ~3 missed 15s polls
+  return <span className={`pill ${stale ? 'err' : 'ok'}`}>{stale ? `stalled · ${age}s` : `updated ${age}s ago`}</span>
+}
+
+function Header({ status, namespaces, onChangeNs, switching }) {
+  return (
+    <header className="header">
+      <div className="brand">
+        <svg className="star" viewBox="0 0 24 24" aria-hidden="true">
+          <polygon points="12,1 14.2,7.5 20.6,5.1 16.9,10.9 22.7,14.5 15.9,15.1 16.8,21.9 12,17 7.2,21.9 8.1,15.1 1.3,14.5 7.1,10.9 3.4,5.1 9.8,7.5" />
+        </svg>
+        <span className="wordmark">MAERSK</span>
+        <span className="brand-sep">Issue Assistant</span>
+      </div>
+      {status && (
+        <div className="status">
+          <label className="ns-picker">
+            <span>namespace</span>
+            <select
+              value={status.namespace || ''}
+              disabled={switching || namespaces.length === 0}
+              onChange={(e) => onChangeNs(e.target.value)}
+            >
+              {/* ensure the current ns is selectable even if not in the fetched list */}
+              {!namespaces.includes(status.namespace) && status.namespace && (
+                <option value={status.namespace}>{status.namespace}</option>
+              )}
+              {namespaces.map((ns) => (
+                <option key={ns} value={ns}>{ns}</option>
+              ))}
+            </select>
+          </label>
+          {switching && <span className="pill"><Spinner size={11} /> switching…</span>}
+          <FreshnessPill ts={status.last_poll_ts} />
+          <span className={`pill ${status.mock ? 'warn' : 'ok'}`}>{status.mock ? 'MOCK DATA' : 'LIVE'}</span>
+          <span className={`pill ${status.llm_enabled ? 'ok' : 'warn'}`}>
+            {status.llm_enabled ? 'AI on' : 'AI off'}
+          </span>
+          {status.last_error && <span className="pill err">poll error</span>}
+        </div>
+      )}
+    </header>
+  )
+}
+
+function IssueList({ issues, selectedId, onSelect, services, serviceFilter, onChangeService, booted, loading }) {
+  return (
+    <div className="list">
+      <div className="list-head">
+        <div className="list-title">Live issues ({issues.length})</div>
+        <select className="svc-filter" value={serviceFilter} onChange={(e) => onChangeService(e.target.value)}>
+          <option value="all">All services</option>
+          {services.map((s) => (
+            <option key={s.name} value={s.name}>{s.name} ({s.count})</option>
+          ))}
+        </select>
+      </div>
+      {issues.length === 0 && (
+        loading || !booted
+          ? <div className="empty loading-row"><Spinner /> Loading issues…</div>
+          : <div className="empty">No issues{serviceFilter !== 'all' ? ' for this service' : ' right now'}.</div>
+      )}
+      {issues.map((i) => (
+        <button
+          key={i.id}
+          className={`issue ${i.id === selectedId ? 'sel' : ''}`}
+          onClick={() => onSelect(i.id)}
+        >
+          <div className="issue-top">
+            <span className={`lvl ${i.level}`}>{i.level}</span>
+            <span className="svc">{i.service}</span>
+            <span className="count">×{i.count}</span>
+          </div>
+          <div className="issue-title">{i.title}</div>
+          <div className="issue-meta">last seen {timeAgo(i.last_seen)}</div>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function Analysis({ issue }) {
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    setData(null)
+  }, [issue.id])
+
+  const run = (refresh) => {
+    setLoading(true)
+    analyzeIssue(issue.id, refresh)
+      .then(setData)
+      .catch((e) => setData({ summary: `Error: ${e.message}`, likely_causes: [], suggested_fixes: [] }))
+      .finally(() => setLoading(false))
+  }
+
+  return (
+    <div className="analysis">
+      <div className="section-head">
+        <span>AI analysis</span>
+        <button className="btn" disabled={loading} onClick={() => run(!!data)}>
+          {loading ? 'Analyzing…' : data ? 'Re-analyze' : 'Analyze'}
+        </button>
+      </div>
+      {loading && <div className="loading-row"><Spinner /> Analyzing the error with AI…</div>}
+      {!data && !loading && <div className="hint">Click Analyze to get an explanation and suggested fixes.</div>}
+      {data && (
+        <div className="analysis-body">
+          {data.severity && <span className={`sev ${data.severity}`}>{data.severity}</span>}
+          <p className="summary">{data.summary}</p>
+          {data.likely_causes?.length > 0 && (
+            <>
+              <h4>Likely causes</h4>
+              <ul>{data.likely_causes.map((c, idx) => <li key={idx}>{c}</li>)}</ul>
+            </>
+          )}
+          {data.suggested_fixes?.length > 0 && (
+            <>
+              <h4>Suggested fixes</h4>
+              <ol>{data.suggested_fixes.map((c, idx) => <li key={idx}>{c}</li>)}</ol>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function CodeMatch({ issue }) {
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [fix, setFix] = useState(null)
+  const [fixing, setFixing] = useState(false)
+
+  useEffect(() => {
+    setData(null)
+    setFix(null)
+  }, [issue.id])
+
+  const run = (refresh) => {
+    setLoading(true)
+    setFix(null)
+    matchCode(issue.id, refresh)
+      .then(setData)
+      .catch((e) => setData({ located: false, summary: `Error: ${e.message}`, files: [] }))
+      .finally(() => setLoading(false))
+  }
+
+  const runFix = () => {
+    const repo = data?.repo || issue.service
+    if (!window.confirm(`Open a DRAFT pull request with an AI-generated fix on Maersk-Global/${repo} (targeting develop)?\n\nIt won't be merged automatically — you'll review it on GitHub.`)) return
+    setFixing(true)
+    setFix(null)
+    fixIt(issue.id)
+      .then(setFix)
+      .catch((e) => setFix({ created: false, error: e.message }))
+      .finally(() => setFixing(false))
+  }
+
+  return (
+    <div className="codematch">
+      <div className="section-head">
+        <span>Match in code (GitHub)</span>
+        <button className="btn" disabled={loading} onClick={() => run(!!data)}>
+          {loading ? 'Scanning…' : data ? 'Re-scan' : 'Find in code'}
+        </button>
+      </div>
+      {loading && <div className="loading-row"><Spinner /> Scanning the repo &amp; matching with AI…</div>}
+      {!data && !loading && (
+        <div className="hint">Search this service's GitHub repo for the code behind this error.</div>
+      )}
+      {data && !loading && (
+        <div className="analysis-body">
+          <div className="repo-line">
+            {data.repo_url ? (
+              <>repo: <a href={data.repo_url} target="_blank" rel="noreferrer">{data.repo}</a></>
+            ) : (
+              <>repo: {data.repo}</>
+            )}
+            {data.located && data.confidence && <span className="conf">confidence: {data.confidence}</span>}
+          </div>
+          {!data.located && <p className="summary">{data.summary}</p>}
+          {data.located && (
+            <>
+              {data.files?.length > 0 && (
+                <>
+                  <h4>Relevant files</h4>
+                  <ul className="files">
+                    {data.files.map((f, idx) => (
+                      <li key={idx}>
+                        <a href={f.url} target="_blank" rel="noreferrer">{f.path}</a>
+                        {f.reason ? ` — ${f.reason}` : ''}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              <h4>Root cause</h4>
+              <p className="summary">{data.root_cause}</p>
+              <h4>Suggested fix</h4>
+              <pre className="fix">{data.suggested_fix}</pre>
+
+              <div className="fix-actions">
+                <button className="btn" disabled={fixing} onClick={runFix}>
+                  {fixing ? 'Opening draft PR…' : '🔧 Fix it → draft PR'}
+                </button>
+                {fixing && <span className="loading-row"><Spinner size={14} /> Generating fix &amp; opening PR…</span>}
+              </div>
+
+              {fix && !fixing && (
+                fix.created ? (
+                  <div className="pr-result ok">
+                    ✅ Draft PR opened:{' '}
+                    <a href={fix.pr_url} target="_blank" rel="noreferrer">#{fix.pr_number} {fix.title}</a>
+                    <div className="pr-meta">branch <code>{fix.branch}</code> → <code>{fix.base}</code></div>
+                    {fix.edits?.length > 0 && (
+                      <ul className="files">
+                        {fix.edits.map((e, idx) => <li key={idx}><code>{e.path}</code>{e.explanation ? ` — ${e.explanation}` : ''}</li>)}
+                      </ul>
+                    )}
+                  </div>
+                ) : (
+                  <div className="pr-result err">⚠️ {fix.error}</div>
+                )
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Chat({ issue }) {
+  const [messages, setMessages] = useState([])
+  const [input, setInput] = useState('')
+  const [busy, setBusy] = useState(false)
+  const endRef = useRef(null)
+
+  useEffect(() => {
+    setMessages([])
+  }, [issue.id])
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
+
+  const submit = async (e) => {
+    e.preventDefault()
+    const text = input.trim()
+    if (!text || busy) return
+    const next = [...messages, { role: 'user', content: text }]
+    setMessages(next)
+    setInput('')
+    setBusy(true)
+    try {
+      const { reply } = await sendChat(issue.id, next)
+      setMessages([...next, { role: 'assistant', content: reply }])
+    } catch (err) {
+      setMessages([...next, { role: 'assistant', content: `Error: ${err.message}` }])
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="chat">
+      <div className="section-head">Ask about this issue</div>
+      <div className="chat-log">
+        {messages.length === 0 && <div className="hint">e.g. "What's the root cause?" or "How do I reproduce this?"</div>}
+        {messages.map((m, idx) => (
+          <div key={idx} className={`msg ${m.role}`}>
+            {m.role === 'assistant' ? <Markdown text={m.content} /> : m.content}
+          </div>
+        ))}
+        {busy && <div className="msg assistant"><TypingDots /></div>}
+        <div ref={endRef} />
+      </div>
+      <form className="chat-input" onSubmit={submit}>
+        <input
+          value={input}
+          placeholder="Ask Claude about this error…"
+          onChange={(e) => setInput(e.target.value)}
+        />
+        <button className="btn" disabled={busy}>Send</button>
+      </form>
+    </div>
+  )
+}
+
+function Detail({ issue }) {
+  if (!issue) return <div className="detail empty-detail">Select an issue to inspect it.</div>
+  return (
+    <div className="detail">
+      <h2>{issue.service}</h2>
+      <div className="samples">
+        {issue.samples.map((s, idx) => <pre key={idx}>{s}</pre>)}
+      </div>
+      <Analysis issue={issue} />
+      <CodeMatch issue={issue} />
+      <Chat issue={issue} />
+    </div>
+  )
+}
+
+// Inline Analyze / Find-in-code / Chat for a search match (materializes it into an issue).
+function ProblemInvestigation({ match }) {
+  const [issue, setIssue] = useState(null)
+  const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+
+  const toggle = () => {
+    if (open) { setOpen(false); return }
+    setOpen(true)
+    if (!issue) {
+      setLoading(true)
+      createAdhocIssue(match.service, match.message, match.namespace)
+        .then(setIssue)
+        .catch(() => {})
+        .finally(() => setLoading(false))
+    }
+  }
+
+  return (
+    <div className="investigate">
+      <button className="link-btn" onClick={toggle}>{open ? '▾ Hide investigation' : '▸ Investigate (Analyze · Find in code · Chat)'}</button>
+      {open && (
+        loading ? (
+          <div className="loading-row"><Spinner /> Preparing…</div>
+        ) : issue ? (
+          <div className="investigate-body">
+            <Analysis issue={issue} />
+            <CodeMatch issue={issue} />
+            <Chat issue={issue} />
+          </div>
+        ) : (
+          <div className="hint">Couldn't prepare this match for investigation.</div>
+        )
+      )}
+    </div>
+  )
+}
+
+function SummaryIssueAnalysis({ service, liveIssues }) {
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [open, setOpen] = useState(false)
+
+  // Pick the live issue with the most occurrences for this service.
+  const matchedIssue = liveIssues
+    .filter((i) => i.service === service)
+    .sort((a, b) => (b.count || 0) - (a.count || 0))[0] || null
+
+  const run = () => {
+    if (!matchedIssue) return
+    setOpen(true)
+    if (data) return        // already have result; just re-open
+    setLoading(true)
+    analyzeIssue(matchedIssue.id, false)
+      .then(setData)
+      .catch((e) => setData({ summary: `Error: ${e.message}`, likely_causes: [], suggested_fixes: [] }))
+      .finally(() => setLoading(false))
+  }
+
+  const rerun = () => {
+    if (!matchedIssue) return
+    setLoading(true)
+    setData(null)
+    analyzeIssue(matchedIssue.id, true)
+      .then(setData)
+      .catch((e) => setData({ summary: `Error: ${e.message}`, likely_causes: [], suggested_fixes: [] }))
+      .finally(() => setLoading(false))
+  }
+
+  if (!matchedIssue) return null
+
+  return (
+    <div className="si-analysis">
+      {!open ? (
+        <button className="btn btn-sm" onClick={run}>🔍 Analyze</button>
+      ) : (
+        <>
+          <div className="si-analysis-head">
+            <span>AI analysis</span>
+            <button className="btn btn-sm" disabled={loading} onClick={rerun}>
+              {loading ? 'Analyzing…' : 'Re-analyze'}
+            </button>
+            <button className="btn btn-sm ghost" onClick={() => setOpen(false)}>✕ Close</button>
+          </div>
+          {loading && <div className="loading-row"><Spinner /> Analyzing with AI…</div>}
+          {data && (
+            <div className="si-analysis-body">
+              {data.severity && <span className={`sev ${data.severity}`}>{data.severity}</span>}
+              <p>{data.summary}</p>
+              {data.likely_causes?.length > 0 && (
+                <>
+                  <h5>Likely causes</h5>
+                  <ul>{data.likely_causes.map((c, i) => <li key={i}>{c}</li>)}</ul>
+                </>
+              )}
+              {data.suggested_fixes?.length > 0 && (
+                <>
+                  <h5>Suggested fixes</h5>
+                  <ol>{data.suggested_fixes.map((c, i) => <li key={i}>{c}</li>)}</ol>
+                </>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+function NamespaceSummary({ namespace, issues: liveIssues = [] }) {
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+
+  useEffect(() => { setData(null); setError(null) }, [namespace])
+
+  const run = (refresh) => {
+    setLoading(true)
+    setError(null)
+    getNamespaceSummary(refresh)
+      .then(setData)
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false))
+  }
+
+  const healthColor = { healthy: 'ok', degraded: 'warn', critical: 'err' }
+
+  return (
+    <div className="ns-summary">
+      <div className="section-head">
+        <span>Namespace summary — <strong>{namespace}</strong></span>
+        <button className="btn" disabled={loading} onClick={() => run(!!data)}>
+          {loading ? 'Generating…' : data ? 'Refresh' : 'Generate Summary'}
+        </button>
+      </div>
+
+      {loading && <div className="loading-row"><Spinner /> Asking AI to summarise issues…</div>}
+      {error && <div className="hint err">Error: {error}</div>}
+
+      {!data && !loading && !error && (
+        <div className="hint">Click <strong>Generate Summary</strong> to get a plain-English health briefing for this namespace.</div>
+      )}
+
+      {data && (
+        <div className="summary-body">
+          <div className="summary-meta">
+            <span className={`pill ${healthColor[data.overall_health] || 'warn'}`}>{data.overall_health}</span>
+            <span className="pill">{data.total_issues} issues</span>
+            <span className="pill">{data.affected_services} services</span>
+            <span className="pill">last {data.minutes >= 60 ? `${data.minutes / 60}h` : `${data.minutes}m`}</span>
+            {data.cached && <span className="pill warn">cached</span>}
+          </div>
+
+          <p className="summary-headline">{data.headline}</p>
+
+          {data.top_concern && (
+            <div className="summary-concern">
+              <span className="concern-label">⚠ Top concern</span>
+              <span>{data.top_concern}</span>
+            </div>
+          )}
+
+          {data.issues?.length > 0 && (
+            <div className="summary-issues">
+              <h4>Affected services</h4>
+              {data.issues.map((i, idx) => (
+                <div key={idx} className="summary-issue-row">
+                  <div className="summary-issue-head">
+                    <span className={`lvl ${i.level}`}>{i.level}</span>
+                    <span className="svc">{i.service}</span>
+                    <span className="count">×{i.count}</span>
+                  </div>
+                  <div className="summary-issue-text">{i.text}</div>
+                  <SummaryIssueAnalysis service={i.service} liveIssues={liveIssues} />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SearchView() {
+  const [key, setKey] = useState('')
+  const [minutes, setMinutes] = useState(120)
+  const [res, setRes] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [summary, setSummary] = useState(null)
+  const [summaryLoading, setSummaryLoading] = useState(false)
+
+  const doSearch = (k) => {
+    const q = (k ?? key).trim()
+    if (q.length < 3) return
+    setKey(q)
+    setLoading(true)
+    setRes(null)
+    setSummary(null)
+    searchKey(q, minutes)
+      .then((r) => {
+        setRes(r)
+        if (r && !r.error) {
+          setSummaryLoading(true)
+          searchSummary(q, minutes).then(setSummary).catch(() => {}).finally(() => setSummaryLoading(false))
+        }
+      })
+      .catch((e) => setRes({ error: e.message, services: [] }))
+      .finally(() => setLoading(false))
+  }
+
+  const withProblems = res?.services?.filter((s) => s.problem_count > 0) || []
+
+  return (
+    <div className="search-view">
+      <form className="search-bar" onSubmit={(e) => { e.preventDefault(); doSearch() }}>
+        <input
+          value={key}
+          autoFocus
+          placeholder="Search a key — booking #, container #, BOL #, or trace id…"
+          onChange={(e) => setKey(e.target.value)}
+        />
+        <select value={minutes} onChange={(e) => setMinutes(Number(e.target.value))} title="time window">
+          <option value={30}>last 30m</option>
+          <option value={60}>last 1h</option>
+          <option value={120}>last 2h</option>
+          <option value={360}>last 6h</option>
+          <option value={720}>last 12h</option>
+        </select>
+        <button className="btn" disabled={loading}>Search</button>
+      </form>
+
+      {loading && <div className="loading-row big"><Spinner /> Searching logs across all services…</div>}
+
+      {res && !loading && (
+        res.error ? (
+          <div className="pr-result err">⚠️ {res.error}</div>
+        ) : (
+          <div className="search-results">
+            {summaryLoading && <div className="loading-row big"><Spinner /> Summarizing the issues in plain English…</div>}
+            {summary && (
+              <div className="summary-card">
+                <div className="summary-headline">{summary.headline}</div>
+                {summary.issues?.length > 0 && (
+                  <ul className="issue-lines">
+                    {summary.issues.map((it, idx) => (
+                      <li key={idx}>
+                        {it.text}
+                        {(it.service || it.namespace) && <span className="src">{it.namespace}{it.namespace && it.service ? ' / ' : ''}{it.service}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            <div className="search-summary">
+              <strong>“{res.key}”</strong> — {res.problem_count} problem(s) across {withProblems.length} service(s);
+              {' '}{res.total_matches} total log match(es) in the last {res.minutes}m.
+              <div className="hint">searched namespaces: {(res.namespaces && res.namespaces.length ? res.namespaces : [res.namespace]).join(', ') || '—'}</div>
+              {res.note && <div className="hint">{res.note}</div>}
+            </div>
+
+            {res.trace_ids?.length > 0 && (
+              <div className="traces">
+                <span>trace ids:</span>
+                {res.trace_ids.map((t) => (
+                  <button key={t} className="trace-chip" title="search this trace id" onClick={() => doSearch(t)}>{t}</button>
+                ))}
+              </div>
+            )}
+
+            {res.services.length === 0 && <div className="empty">No log lines contain this key in the selected window.</div>}
+
+            {res.services.map((s) => (
+              <div key={s.service} className="svc-card">
+                <div className="svc-card-head">
+                  <span className="svc">{s.service}</span>
+                  {s.namespace && <span className="ns-badge">{s.namespace}</span>}
+                  {s.problem_count > 0 && <span className="pill err">{s.problem_count} problem{s.problem_count > 1 ? 's' : ''}</span>}
+                  <span className="count">{s.total} match{s.total > 1 ? 'es' : ''}</span>
+                </div>
+                {s.problems.length === 0 ? (
+                  <div className="hint">Key seen here, but no error/warn lines.</div>
+                ) : (
+                  s.problems.map((p, i) => (
+                    <div key={i} className="match">
+                      <div className="match-top">
+                        <span className={`lvl ${p.level}`}>{p.level}</span>
+                        <span className="match-msg">{p.message}</span>
+                      </div>
+                      <div className="match-meta">
+                        {p.ts?.slice(0, 19).replace('T', ' ')}
+                        {p.trace_id && <> · <button className="trace-chip sm" onClick={() => doSearch(p.trace_id)}>{p.trace_id}</button></>}
+                      </div>
+                      <ProblemInvestigation match={p} />
+                    </div>
+                  ))
+                )}
+              </div>
+            ))}
+          </div>
+        )
+      )}
+    </div>
+  )
+}
+
+export default function App() {
+  const [issues, setIssues] = useState([])
+  const [status, setStatus] = useState(null)
+  const [selectedId, setSelectedId] = useState(null)
+  const [namespaces, setNamespaces] = useState([])
+  const [switching, setSwitching] = useState(false)
+  const [serviceFilter, setServiceFilter] = useState('all')
+  const [booted, setBooted] = useState(false)
+  const [tab, setTab] = useState('issues')
+  const [, setNow] = useState(0) // 1s ticker so "updated Xs ago" stays live
+
+  const refresh = () => {
+    listIssues().then((d) => { setIssues(d); setBooted(true) }).catch(() => setBooted(true))
+    getStatus().then(setStatus).catch(() => {})
+  }
+
+  useEffect(() => {
+    refresh()
+    const t = setInterval(refresh, REFRESH_MS)
+    const tick = setInterval(() => setNow((n) => n + 1), 1000)
+    listNamespaces().then(setNamespaces).catch(() => {})
+    return () => { clearInterval(t); clearInterval(tick) }
+  }, [])
+
+  // Distinct services that currently have issues, with counts, for the filter dropdown.
+  const serviceCounts = issues.reduce((m, i) => ((m[i.service] = (m[i.service] || 0) + 1), m), {})
+  const services = Object.keys(serviceCounts).sort().map((name) => ({ name, count: serviceCounts[name] }))
+  const visibleIssues = serviceFilter === 'all' ? issues : issues.filter((i) => i.service === serviceFilter)
+
+  // If the filtered service no longer has issues (e.g. resolved or namespace switch), reset.
+  useEffect(() => {
+    if (serviceFilter !== 'all' && !issues.some((i) => i.service === serviceFilter)) {
+      setServiceFilter('all')
+    }
+  }, [issues, serviceFilter])
+
+  const onChangeNs = async (ns) => {
+    setSwitching(true)
+    setSelectedId(null)
+    setIssues([])
+    setServiceFilter('all')
+    try {
+      await setNamespace(ns) // backend clears + loads the new namespace
+      setStatus((s) => (s ? { ...s, namespace: ns } : s))
+      const d = await listIssues() // fetch the freshly loaded issues before hiding the loader
+      setIssues(d)
+      setBooted(true)
+      getStatus().then(setStatus).catch(() => {})
+    } catch {
+      /* keep current view on failure */
+    } finally {
+      setSwitching(false)
+    }
+  }
+
+  const selected = issues.find((i) => i.id === selectedId) || null
+
+  return (
+    <div className="app">
+      <Header status={status} namespaces={namespaces} onChangeNs={onChangeNs} switching={switching} />
+      <div className="tabs">
+        <button className={`tab ${tab === 'issues' ? 'active' : ''}`} onClick={() => setTab('issues')}>Live Issues</button>
+        <button className={`tab ${tab === 'summary' ? 'active' : ''}`} onClick={() => setTab('summary')}>📋 Summary</button>
+        <button className={`tab ${tab === 'search' ? 'active' : ''}`} onClick={() => setTab('search')}>🔎 Search by Key</button>
+      </div>
+      {tab === 'issues' ? (
+        <div className="main">
+          <IssueList
+            issues={visibleIssues}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            services={services}
+            serviceFilter={serviceFilter}
+            onChangeService={setServiceFilter}
+            booted={booted}
+            loading={switching}
+          />
+          <Detail issue={selected} />
+        </div>
+      ) : tab === 'summary' ? (
+        <div className="main single">
+          <NamespaceSummary namespace={status?.namespace || ''} issues={issues} />
+        </div>
+      ) : (
+        <SearchView />
+      )}
+    </div>
+  )
+}

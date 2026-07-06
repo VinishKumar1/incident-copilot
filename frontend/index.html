@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en" class="mds">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>K8s Issue Assistant — Maersk</title>
+
+    <!-- Maersk Design System — CDN assets -->
+    <link
+      id="DesignTokensLight"
+      rel="stylesheet"
+      media="(prefers-color-scheme: light)"
+      href="https://designsystem.maersk.com/@maersk-global/mds-design-tokens/maersk/light/css/design-tokens-px.css"
+    />
+    <link
+      id="DesignTokensDark"
+      rel="stylesheet"
+      media="(prefers-color-scheme: dark)"
+      href="https://designsystem.maersk.com/@maersk-global/mds-design-tokens/maersk/dark/css/design-tokens-px.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://designsystem.maersk.com/@maersk-global/fonts/maeu/fonts.css"
+    />
+    <script
+      type="module"
+      src="https://designsystem.maersk.com/@maersk-global/mds-components-core/index.bundle.esm.min.js"
+    ></script>
+
+    <script>
+      // Required by MDS for icon dynamic imports
+      window.MdsConfig = {
+        _iconsDynamicImportPath: 'https://designsystem.maersk.com/',
+        _isInitialized: true,
+      };
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

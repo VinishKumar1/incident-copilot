@@ -1,0 +1,24 @@
+# secrets / local config
+.env
+*.env
+kubeconfig*
+*.kubeconfig
+.kube/
+
+# python
+backend/.venv/
+__pycache__/
+*.pyc
+backend/data/
+
+# node
+frontend/node_modules/
+frontend/dist/
+
+# k8s — never commit actual secrets (use template only)
+k8s/secret.yaml
+
+# misc
+.DS_Store
+architecture.png
+architecture.mmd
