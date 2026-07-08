@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 import time
 from typing import Dict, List
@@ -8,6 +9,8 @@ import httpx
 
 from .config import settings
 from .models import LogEntry
+
+log = logging.getLogger(__name__)
 
 def _cluster_selector() -> str:
     """Return a k8s_cluster label matcher covering all configured clusters.
@@ -200,6 +203,8 @@ class LokiClient:
         # Namespace names only contain alphanumerics and hyphens — no regex escaping needed.
         ns_pattern = "|".join(namespaces)
         query = f'{{namespace=~"{ns_pattern}", {_cluster_selector()}}} |= "{key}"'
+        log.info("search_key: searching key=%r across %d namespaces: %s", key, len(namespaces), namespaces)
+        log.info("search_key: loki query: %s", query)
 
         # Chunk into 6-hour slices to avoid Loki's per-query byte limit.
         CHUNK_MINUTES = 360
@@ -236,7 +241,12 @@ class LokiClient:
                 try:
                     resp = await self._get(client, url, headers=headers, params=params)
                     data = resp.json()
-                except Exception:
+                    result_count = len(data.get("data", {}).get("result", []))
+                    log.info("search_key: chunk query returned %d streams (status=%s)", result_count, resp.status_code)
+                    if resp.status_code >= 400:
+                        log.warning("search_key: loki error response: %s", resp.text[:500])
+                except Exception as exc:
+                    log.warning("search_key: chunk query failed: %s", exc)
                     continue  # skip failed chunks, don't abort the whole search
 
                 for stream in data.get("data", {}).get("result", []):
@@ -269,9 +279,17 @@ class LokiClient:
 
                         trace_id = ""
                         for pattern in (
-                            r'"traceId"\s*:\s*"([^"]{8,})"',
-                            r'traceId=([0-9a-fA-F]{16,})',
-                            r'trace[_-]id[=: ]+([0-9a-fA-F]{16,})',
+                            # JSON: "traceId": "abc123"
+                            r'"[Tt]race[_-]?[Ii]d"\s*:\s*"([^"]{8,})"',
+                            # logfmt: traceId=abc123 or trace_id=abc123
+                            r'[Tt]race[_-]?[Ii]d=([0-9a-fA-F\-]{8,})',
+                            # W3C traceparent: 00-<traceId(32 hex)>-<spanId(16 hex)>-xx
+                            r'traceparent[=: ]+\d{2}-([0-9a-fA-F]{32})-',
+                            # plain 32-hex UUID-style or 16-hex trace id after "trace" keyword
+                            r'(?i)trace["\s:=]+([0-9a-fA-F]{32})',
+                            r'(?i)trace["\s:=]+([0-9a-fA-F]{16})',
+                            # Grafana/OpenTelemetry: X-B3-TraceId or similar
+                            r'[Xx]-[Bb]3-[Tt]race[Ii]d[=: ]+([0-9a-fA-F]{16,32})',
                         ):
                             tm = re.search(pattern, line)
                             if tm:
@@ -305,6 +323,27 @@ class LokiClient:
         total_matches = sum(g["total"] for g in services)
         total_problems = sum(g["problem_count"] for g in services)
 
+        # ── Phase 2: follow trace IDs into other services ──────────────────────
+        log.info("search_key: key=%r found %d log lines, extracted %d trace IDs: %s",
+                 key, total_matches, len(all_trace_ids), all_trace_ids[:5])
+
+        # If Phase 1 found nothing at all, the key itself might be a trace ID
+        # (e.g. user pastes a trace ID directly), OR the booking number doesn't
+        # appear verbatim in log text but its trace ID is known.  Try the key as
+        # a trace ID so the user gets results either way.
+        trace_ids_to_follow = list(all_trace_ids)
+        _TRACE_RE = re.compile(r'^[0-9a-fA-F]{16,32}$')
+        if total_matches == 0 and _TRACE_RE.match(key.strip()):
+            log.info("search_key: no log lines found for key=%r — treating as trace ID for phase-2", key)
+            trace_ids_to_follow = [key.strip()]
+
+        trace_issues: List[dict] = []
+        if trace_ids_to_follow:
+            trace_issues = await self._search_trace_ids(
+                trace_ids_to_follow, namespaces, start_ts, end_ts
+            )
+            log.info("search_key: phase-2 trace search found %d service groups with errors", len(trace_issues))
+
         return {
             "key": key,
             "namespace": ", ".join(namespaces),
@@ -314,7 +353,106 @@ class LokiClient:
             "problem_count": total_problems,
             "services": services,
             "trace_ids": all_trace_ids,
+            "trace_issues": trace_issues,
         }
+
+    async def _search_trace_ids(
+        self,
+        trace_ids: List[str],
+        namespaces: List[str],
+        start_ts: float,
+        end_ts: float,
+    ) -> List[dict]:
+        """Phase 2: for each trace ID found in phase 1, search across ALL
+        namespaces for error-level log lines that carry the same trace ID.
+        This surfaces failures in downstream services that were triggered by
+        the original key (e.g. a booking number calls offer-service which
+        calls pricing-service which fails — the error shows up here).
+        """
+        if not trace_ids:
+            return []
+
+        _ERROR_LEVELS = {"error", "warn", "warning", "fatal", "panic", "severe", "critical", "err", "crit"}
+        _SAFE_LEVELS  = {"info", "debug", "trace"}
+        _PROBLEM_RE   = re.compile(r"(?i)\b(error|exception|fatal|panic|traceback|warn)\b")
+
+        # Use the same namespaces as the original search — Maersk Loki requires
+        # a namespace label in every query. We search the same namespace set
+        # so we catch failures in different services within the same namespace.
+        ns_pattern = "|".join(namespaces)
+        groups: Dict[tuple, dict] = {}
+
+        url, headers = self._endpoint()
+        async with httpx.AsyncClient(timeout=settings.loki_timeout_seconds) as client:
+            for trace_id in trace_ids[:10]:  # cap at 10 trace IDs to avoid excessive queries
+                # Search for this trace ID across the given namespaces
+                query = f'{{namespace=~"{ns_pattern}", {_cluster_selector()}}} |= "{trace_id}"'
+                params = {
+                    "query": query,
+                    "start": str(int(start_ts * 1e9)),
+                    "end":   str(int(end_ts   * 1e9)),
+                    "limit": "500",
+                    "direction": "backward",
+                }
+                log.debug("_search_trace_ids: querying trace_id=%r query=%r", trace_id, query)
+                try:
+                    resp = await self._get(client, url, headers=headers, params=params)
+                    data = resp.json()
+                except Exception as exc:
+                    log.warning("_search_trace_ids: query failed for trace_id=%r: %s", trace_id, exc)
+                    continue
+
+                result_streams = data.get("data", {}).get("result", [])
+                log.debug("_search_trace_ids: trace_id=%r → %d streams", trace_id, len(result_streams))
+
+                for stream in result_streams:
+                    lbl  = stream.get("stream", {})
+                    ns   = lbl.get("namespace", "")
+                    svc  = (
+                        lbl.get("app")
+                        or lbl.get("container")
+                        or lbl.get("pod", "unknown").rsplit("-", 2)[0]
+                    )
+                    grp_key = (ns, svc)
+
+                    for ts_ns, line in stream.get("values", []):
+                        level = (lbl.get("level") or lbl.get("detected_level") or "").lower()
+                        if not level:
+                            m = re.search(r"(?i)\b(ERROR|WARN|INFO|DEBUG|FATAL)\b", line)
+                            level = m.group(1).lower() if m else ""
+
+                        is_problem = level in _ERROR_LEVELS or (
+                            level not in _SAFE_LEVELS and bool(_PROBLEM_RE.search(line))
+                        )
+                        if not is_problem:
+                            continue
+
+                        if grp_key not in groups:
+                            groups[grp_key] = {
+                                "namespace": ns,
+                                "service":   svc,
+                                "total":     0,
+                                "problem_count": 0,
+                                "problems":  [],
+                                "trace_ids": [trace_id],
+                            }
+                        grp = groups[grp_key]
+                        if trace_id not in grp["trace_ids"]:
+                            grp["trace_ids"].append(trace_id)
+                        grp["total"] += 1
+                        grp["problem_count"] += 1
+                        grp["problems"].append({
+                            "ts":        str(int(ts_ns) // int(1e6)),
+                            "namespace": ns,
+                            "service":   svc,
+                            "pod":       lbl.get("pod", ""),
+                            "level":     level or "error",
+                            "message":   line[:500],
+                            "trace_id":  trace_id,
+                        })
+
+        return sorted(groups.values(), key=lambda g: g["problem_count"], reverse=True)
+
 
     async def get_service_logs(
         self, service: str, namespace: str, minutes: int, level: str, max_lines: int

@@ -109,6 +109,8 @@ class SearchResponse(BaseModel):
     problem_count: int = 0
     services: List[SearchServiceGroup] = Field(default_factory=list)
     trace_ids: List[str] = Field(default_factory=list)
+    # Phase-2: errors found by following trace IDs into other services
+    trace_issues: List[SearchServiceGroup] = Field(default_factory=list)
     note: str = ""
 
 

@@ -872,6 +872,38 @@ input.mds-text-input { height: 36px; padding: 0 10px; }
   margin-bottom: 12px;
 }
 
+/* ── Trace propagation section ───────────────────────────────────────────── */
+
+.mds-trace-issues-section {
+  margin-top: 20px;
+  border-top: 2px dashed var(--mds_brand_appearance_warning_default_border, #f5a623);
+  padding-top: 16px;
+}
+
+.mds-trace-issues-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.mds-trace-issues-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--mds_brand_appearance_warning_default_text, #b45309);
+}
+
+.mds-svc-card--trace {
+  border-color: var(--mds_brand_appearance_warning_weak_border, #fde68a);
+  background: #fffbeb;
+}
+
+.mds-svc-card--trace .mds-svc-card__head {
+  background: #fef3c7;
+  border-bottom-color: var(--mds_brand_appearance_warning_weak_border, #fde68a);
+}
+
+
 /* ── Service cards (search results) ─────────────────────────────────────── */
 
 .mds-svc-card {

@@ -880,6 +880,45 @@ function SearchView() {
                 )}
               </div>
             ))}
+
+            {res.trace_issues?.length > 0 && (
+              <div className="mds-trace-issues-section">
+                <div className="mds-trace-issues-header">
+                  <span className="mds-trace-issues-title">🔗 Related failures found via trace propagation</span>
+                  <span className="mds-hint">
+                    These errors were not triggered by "{res.key}" directly, but share the same trace ID —
+                    downstream services failed as part of the same request chain.
+                  </span>
+                </div>
+                {res.trace_issues.map((s) => (
+                  <div key={`trace-${s.service}-${s.namespace}`} className="mds-svc-card mds-svc-card--trace">
+                    <div className="mds-svc-card__head">
+                      <span className="mds-svc-card__name">{s.service}</span>
+                      {s.namespace && <Tag appearance="info" fit="small">{s.namespace}</Tag>}
+                      <Tag appearance="warning" fit="small">via trace</Tag>
+                      <Tag appearance="error" fit="small">{s.problem_count} error{s.problem_count > 1 ? 's' : ''}</Tag>
+                    </div>
+                    {s.problems.map((p, i) => (
+                      <div key={i} className="mds-match">
+                        <div className="mds-match__top">
+                          <Tag appearance={levelAppearance(p.level)} fit="small">{p.level}</Tag>
+                          <span className="mds-match__msg">{p.message}</span>
+                        </div>
+                        <div className="mds-match__meta">
+                          {p.ts?.slice(0, 19).replace('T', ' ')}
+                          {p.trace_id && (
+                            <Btn variant="plain" appearance="neutral" fit="small" onClick={() => doSearch(p.trace_id)}>
+                              {p.trace_id}
+                            </Btn>
+                          )}
+                        </div>
+                        <ProblemInvestigation match={p} />
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )
       )}

@@ -74,13 +74,18 @@ async def get_service_logs(service: str, minutes: int = 5, level: str = "", max_
 
 
 async def search_key(key: str, minutes: int = 120) -> dict:
-    """Find log lines containing `key` across the paired iom/telikos namespaces."""
-    namespaces = paired_namespaces(runtime.namespace)
+    """Find log lines containing `key` across ALL known namespaces.
+
+    We search all namespaces (not just the active live-feed namespace) because
+    a booking/container/trace ID can appear in any namespace. The active
+    namespace is listed first so its results appear at the top.
+    """
+    active_namespaces = paired_namespaces(runtime.namespace)
     if settings.use_mock:
-        ns0 = namespaces[0]
-        ns1 = namespaces[1] if len(namespaces) > 1 else ns0
+        ns0 = active_namespaces[0]
+        ns1 = active_namespaces[1] if len(active_namespaces) > 1 else ns0
         return {
-            "key": key, "namespace": ", ".join(namespaces), "namespaces": namespaces, "minutes": minutes,
+            "key": key, "namespace": ", ".join(active_namespaces), "namespaces": active_namespaces, "minutes": minutes,
             "total_matches": 3, "problem_count": 2,
             "services": [
                 {"namespace": ns0, "service": "iom-web-integrator", "total": 2, "problem_count": 2, "trace_ids": ["abc123def456"],
@@ -97,9 +102,26 @@ async def search_key(key: str, minutes: int = 120) -> dict:
     if settings.log_source == "k8s":
         from .k8s import k8s_client
 
-        return await k8s_client.search_logs(key, namespaces, minutes)
+        return await k8s_client.search_logs(key, active_namespaces, minutes)
 
-    # loki / grafana — search across paired namespaces with full history window
+    # loki / grafana — search ALL known namespaces so a booking/trace that
+    # lives in iom-prod is found even when the live feed shows iom-preprod.
     from .loki import loki_client
+
+    try:
+        all_namespaces = await loki_client.list_namespaces()
+    except Exception:
+        all_namespaces = []
+
+    # Merge: active namespace(s) first (preserves priority), then the rest.
+    seen: set = set()
+    namespaces: List[str] = []
+    for ns in active_namespaces + all_namespaces:
+        if ns and ns not in seen:
+            seen.add(ns)
+            namespaces.append(ns)
+
+    if not namespaces:
+        namespaces = active_namespaces
 
     return await loki_client.search_key(key, namespaces, minutes)

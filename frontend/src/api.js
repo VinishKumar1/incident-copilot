@@ -7,10 +7,11 @@ async function getAccessToken() {
   try {
     const result = await msalInstance.acquireTokenSilent({ ...loginRequest, account })
     // idToken always has audience=clientId which our backend validates.
-    // accessToken for openid/profile/email scopes targets MS Graph, not our backend.
     return result.idToken || result.accessToken
   } catch (e) {
-    console.warn('Silent token acquisition failed:', e)
+    console.warn('Silent token acquisition failed — redirecting to login:', e)
+    // Token unrenewable silently — force a fresh login
+    msalInstance.loginRedirect(loginRequest).catch(() => {})
     return null
   }
 }
@@ -21,6 +22,16 @@ async function authHeaders() {
 }
 
 const json = async (r) => {
+  if (r.status === 401) {
+    // Backend rejected our token — it has expired. Trigger a fresh login.
+    console.warn('API returned 401 — token expired, redirecting to login')
+    if (msalInstance && loginRequest) {
+      msalInstance.loginRedirect(loginRequest).catch(() => {})
+    } else {
+      window.location.reload()
+    }
+    throw new Error('Session expired — please sign in again')
+  }
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
   return r.json()
 }
