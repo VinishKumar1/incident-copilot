@@ -43,7 +43,8 @@ jobs:
         run: |
           kubelogin convert-kubeconfig -l spn \
             --client-id "${{ secrets.ARM_CLIENT_ID }}" \
-            --client-secret "${{ secrets.ARM_CLIENT_SECRET }}"
+            --client-secret "${{ secrets.ARM_CLIENT_SECRET }}" \
+            --tenant-id "${{ secrets.ARM_TENANT_ID }}"
 
       - name: Verify cluster connection
         run: kubectl cluster-info
