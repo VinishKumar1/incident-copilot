@@ -49,11 +49,6 @@ jobs:
       - name: Verify cluster connection
         run: kubectl get pods -n ${{ env.NAMESPACE }} --request-timeout=10s || true
 
-      - name: Ensure namespace exists
-        run: |
-          kubectl get namespace ${{ env.NAMESPACE }} \
-            || kubectl create namespace ${{ env.NAMESPACE }}
-
       - name: Apply ConfigMap
         run: kubectl apply -f k8s/configmap.yaml
 
