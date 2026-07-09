@@ -32,6 +32,19 @@ jobs:
           echo "${{ secrets.KUBECONFIG }}" > $HOME/.kube/config
           chmod 600 $HOME/.kube/config
 
+      - name: Install kubelogin
+        run: |
+          curl -sLO https://github.com/Azure/kubelogin/releases/latest/download/kubelogin-linux-amd64.zip
+          unzip -q kubelogin-linux-amd64.zip
+          sudo mv bin/linux_amd64/kubelogin /usr/local/bin/kubelogin
+          kubelogin --version
+
+      - name: Convert kubeconfig to use service principal
+        run: |
+          kubelogin convert-kubeconfig -l spn \
+            --client-id "${{ secrets.ARM_CLIENT_ID }}" \
+            --client-secret "${{ secrets.ARM_CLIENT_SECRET }}"
+
       - name: Verify cluster connection
         run: kubectl cluster-info
 
