@@ -14,8 +14,6 @@ on:
 
 env:
   NAMESPACE: iom-preprod
-  CLUSTER_NAME: ohp-np-west-1
-  RESOURCE_GROUP: rgpazewdaks01ohpdev
   BACKEND_IMAGE: ghcr.io/maersk-global/iom/tfr-backend
   FRONTEND_IMAGE: ghcr.io/maersk-global/iom/tfr-frontend
 
@@ -28,18 +26,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Azure login
-        uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Set AKS context
-        uses: azure/aks-set-context@v4
-        with:
-          resource-group: ${{ env.RESOURCE_GROUP }}
-          cluster-name: ${{ env.CLUSTER_NAME }}
-          admin: false
-          use-kubelogin: true
+      - name: Set up kubeconfig
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBECONFIG }}" > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
 
       - name: Verify cluster connection
         run: kubectl cluster-info
