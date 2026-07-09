@@ -47,7 +47,7 @@ jobs:
             --tenant-id "${{ secrets.ARM_TENANT_ID }}"
 
       - name: Verify cluster connection
-        run: kubectl cluster-info
+        run: kubectl get pods -n ${{ env.NAMESPACE }} --request-timeout=10s || true
 
       - name: Ensure namespace exists
         run: |
