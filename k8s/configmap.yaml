@@ -30,9 +30,9 @@ data:
   AZURE_AD_TENANT_ID: "05d75c05-fa1a-42e7-9cf1-eb416c396f2d"
   AZURE_AD_CLIENT_ID: "fdb5c5f4-d589-495b-8b84-c0f3abad2eb0"
   # ── Secrets (injected from ohpiom-nonprod-kv by cluster KV integration) ──
-  GRAFANA_TOKEN: "REPLACE_WITH_KV_PATH"
-  OPENAI_API_KEY: "REPLACE_WITH_KV_PATH"
-  DATABASE_URL: "REPLACE_WITH_KV_PATH"
-  ARM_CLIENT_ID: "REPLACE_WITH_KV_PATH"
-  ARM_CLIENT_SECRET: "REPLACE_WITH_KV_PATH"
-  ARM_TENENT_ID: "REPLACE_WITH_KV_PATH"
+  GRAFANA_TOKEN: vault:ohpiom-nonprod-kv/data/readable/preprod/telikos-first-responder#grafanaToken
+  OPENAI_API_KEY: vault:ohpiom-nonprod-kv/data/readable/preprod/telikos-first-responder#apiKey
+  DATABASE_URL: vault:ohpiom-nonprod-kv/data/readable/preprod/telikos-first-responder#dbUrl
+  ARM_CLIENT_ID: vault:ohpiom-nonprod-kv/data/readable/preprod/telikos-first-responder#clientId
+  ARM_CLIENT_SECRET: vault:ohpiom-nonprod-kv/data/readable/preprod/telikos-first-responder#clientSecret
+  ARM_TENENT_ID: vault:ohpiom-nonprod-kv/data/readable/preprod/telikos-first-responder#tenantId
