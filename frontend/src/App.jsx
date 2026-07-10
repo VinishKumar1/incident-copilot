@@ -208,7 +208,7 @@ function Header({ status, namespaces, onChangeNs, switching, ssoEnabled }) {
           <polygon points="12,1 14.2,7.5 20.6,5.1 16.9,10.9 22.7,14.5 15.9,15.1 16.8,21.9 12,17 7.2,21.9 8.1,15.1 1.3,14.5 7.1,10.9 3.4,5.1 9.8,7.5" />
         </svg>
         <span className="mds-header__wordmark">MAERSK</span>
-        <span className="mds-header__product">Telikos First Responder</span>
+        <span className="mds-header__product">First Responder</span>
       </div>
 
       {status && (
@@ -971,7 +971,7 @@ function LoginPage() {
           </svg>
           <span>MAERSK</span>
         </div>
-        <h1 className="mds-login-title">Telikos First Responder</h1>
+        <h1 className="mds-login-title">First Responder</h1>
         <p className="mds-login-subtitle">Sign in with your Maersk account to continue</p>
         {error && <p className="mds-login-error">{error}</p>}
         <Btn
