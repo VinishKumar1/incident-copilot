@@ -197,25 +197,33 @@ class LokiClient:
         """Search all log levels (not just errors) for a key string across namespaces.
 
         Works with both direct Loki and Grafana proxy sources.
-        Long windows are chunked into 6-hour slices to stay within Loki's scan limit.
+        Long namespace lists are chunked into batches of 10 to avoid Loki's regex limit.
+        Long time windows are chunked into 6-hour slices to stay within Loki's scan limit.
         Uses k8s_cluster as second label so it works for any namespace.
         """
-        # Namespace names only contain alphanumerics and hyphens — no regex escaping needed.
-        ns_pattern = "|".join(namespaces)
-        query = f'{{namespace=~"{ns_pattern}", {_cluster_selector()}}} |= "{key}"'
         log.info("search_key: searching key=%r across %d namespaces: %s", key, len(namespaces), namespaces)
-        log.info("search_key: loki query: %s", query)
+
+        # Split namespaces into batches of 10 to keep the Loki regex short enough (avoids 400).
+        NS_BATCH_SIZE = 10
+        ns_batches = [namespaces[i:i + NS_BATCH_SIZE] for i in range(0, len(namespaces), NS_BATCH_SIZE)]
 
         # Chunk into 6-hour slices to avoid Loki's per-query byte limit.
         CHUNK_MINUTES = 360
         end_ts = time.time()
         start_ts = end_ts - minutes * 60
-        chunks: List[tuple] = []
+        time_chunks: List[tuple] = []
         t = end_ts
         while t > start_ts:
             chunk_start = max(t - CHUNK_MINUTES * 60, start_ts)
-            chunks.append((chunk_start, t))
+            time_chunks.append((chunk_start, t))
             t = chunk_start
+
+        # All combinations of namespace batch × time chunk
+        chunks: List[tuple] = [
+            (ns_batch, chunk_start, chunk_end)
+            for ns_batch in ns_batches
+            for chunk_start, chunk_end in time_chunks
+        ]
 
         # Matches keyword-in-text for logs with no structured level (plain-text fallback).
         # Uses word boundaries to avoid false positives from class names like NullPointerException.
@@ -230,7 +238,9 @@ class LokiClient:
 
         url, headers = self._endpoint()
         async with httpx.AsyncClient(timeout=settings.loki_timeout_seconds) as client:
-            for chunk_start, chunk_end in chunks:
+            for ns_batch, chunk_start, chunk_end in chunks:
+                ns_pattern = "|".join(ns_batch)
+                query = f'{{namespace=~"{ns_pattern}", {_cluster_selector()}}} |= "{key}"'
                 params = {
                     "query": query,
                     "start": str(int(chunk_start * 1e9)),
@@ -242,7 +252,7 @@ class LokiClient:
                     resp = await self._get(client, url, headers=headers, params=params)
                     data = resp.json()
                     result_count = len(data.get("data", {}).get("result", []))
-                    log.info("search_key: chunk query returned %d streams (status=%s)", result_count, resp.status_code)
+                    log.info("search_key: batch(%d ns) chunk query returned %d streams (status=%s)", len(ns_batch), result_count, resp.status_code)
                     if resp.status_code >= 400:
                         log.warning("search_key: loki error response: %s", resp.text[:500])
                 except Exception as exc:
