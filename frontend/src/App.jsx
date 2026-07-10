@@ -5,7 +5,7 @@ import { loginRequest } from './authConfig.js'
 import {
   getStatus, listIssues, analyzeIssue, sendChat, listNamespaces,
   setNamespace, matchCode, fixIt, searchKey, searchSummary,
-  createAdhocIssue, getNamespaceSummary, getDashboard,
+  createAdhocIssue, getNamespaceSummary, getDashboard, getVibeUsage,
 } from './api'
 
 const REFRESH_MS = 5000
@@ -1028,6 +1028,7 @@ function DashboardView() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [vibeUsage, setVibeUsage] = useState(null)
 
   const load = (h) => {
     setLoading(true)
@@ -1039,6 +1040,7 @@ function DashboardView() {
   }
 
   useEffect(() => { load(hours) }, [hours])
+  useEffect(() => { getVibeUsage().then(setVibeUsage).catch(() => {}) }, [])
 
   const ACTION_LABELS = {
     login: '🔑 Logins',
@@ -1066,6 +1068,53 @@ function DashboardView() {
       </div>
 
       {error && <p className="mds-error">{error}</p>}
+
+      {vibeUsage && !vibeUsage.error && (
+        <div className="mds-vibe-usage-card">
+          <div className="mds-vibe-usage-card__header">
+            <span className="mds-vibe-usage-card__title">🔑 Vibe Proxy API Key — {vibeUsage.key_alias}</span>
+            <span className="mds-vibe-usage-card__models">{vibeUsage.models?.join(', ')}</span>
+          </div>
+          <div className="mds-vibe-usage-card__body">
+            <div className="mds-vibe-usage-metric">
+              <span className="mds-vibe-usage-metric__label">Spent</span>
+              <span className="mds-vibe-usage-metric__value mds-vibe-usage-metric__value--spend">
+                ${vibeUsage.spend?.toFixed(4)}
+              </span>
+            </div>
+            <div className="mds-vibe-usage-metric">
+              <span className="mds-vibe-usage-metric__label">Budget</span>
+              <span className="mds-vibe-usage-metric__value">${vibeUsage.max_budget}</span>
+            </div>
+            <div className="mds-vibe-usage-metric">
+              <span className="mds-vibe-usage-metric__label">Remaining</span>
+              <span className="mds-vibe-usage-metric__value mds-vibe-usage-metric__value--remaining">
+                ${(vibeUsage.max_budget - vibeUsage.spend).toFixed(4)}
+              </span>
+            </div>
+            <div className="mds-vibe-usage-metric">
+              <span className="mds-vibe-usage-metric__label">Resets</span>
+              <span className="mds-vibe-usage-metric__value mds-hint">
+                {vibeUsage.budget_reset_at ? new Date(vibeUsage.budget_reset_at).toLocaleDateString() : '—'}
+              </span>
+            </div>
+            <div className="mds-vibe-usage-metric">
+              <span className="mds-vibe-usage-metric__label">Expires</span>
+              <span className="mds-vibe-usage-metric__value mds-hint">
+                {vibeUsage.expires ? new Date(vibeUsage.expires).toLocaleDateString() : '—'}
+              </span>
+            </div>
+          </div>
+          {vibeUsage.max_budget && (
+            <div className="mds-vibe-usage-bar">
+              <div
+                className="mds-vibe-usage-bar__fill"
+                style={{ width: `${Math.min(100, (vibeUsage.spend / vibeUsage.max_budget) * 100).toFixed(1)}%` }}
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {data && (
         <>
