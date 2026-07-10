@@ -94,15 +94,21 @@ class LokiClient:
         return settings.grafana_token
 
     async def _get(self, client: httpx.AsyncClient, url: str, headers: dict, **kwargs) -> httpx.Response:
-        """GET with automatic token refresh + one retry on Grafana 401."""
+        """GET with automatic token refresh + retries on Grafana 401."""
         resp = await client.get(url, headers=headers, **kwargs)
         if resp.status_code == 401 and settings.log_source == "grafana":
             import logging
-            logging.getLogger("loki").warning("Grafana 401 — refreshing token and retrying…")
             from .token_refresh import _refresh_once
-            await _refresh_once()
-            _, headers = self._endpoint()  # pick up the freshly-set _live_token
-            resp = await client.get(url, headers=headers, **kwargs)
+            for attempt in range(1, 4):  # up to 3 refresh attempts
+                logging.getLogger("loki").warning("Grafana 401 — refresh attempt %d/3…", attempt)
+                success = await _refresh_once()
+                _, headers = self._endpoint()  # pick up freshly-set _live_token
+                resp = await client.get(url, headers=headers, **kwargs)
+                if resp.status_code != 401:
+                    break
+                if not success:
+                    import asyncio
+                    await asyncio.sleep(5)  # brief wait before next attempt
         resp.raise_for_status()
         return resp
 

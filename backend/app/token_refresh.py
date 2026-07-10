@@ -133,12 +133,14 @@ async def _refresh_once() -> bool:
 
 
 async def token_refresh_loop() -> None:
-    """Background task: refresh the Grafana token on startup then every 25 minutes.
+    """Background task: refresh the Grafana token on startup then every 20 minutes.
 
     Refreshing immediately on startup guarantees the backend always has a valid
     token regardless of how old the token in .env is.
+    On failure, retries every 2 minutes until successful.
     """
-    INTERVAL = 25 * 60  # 25 minutes — well inside the 30-min expiry window
+    INTERVAL = 20 * 60      # 20 minutes — well inside the 30-min expiry window
+    RETRY_INTERVAL = 2 * 60  # retry every 2 minutes on failure
 
     # Always do an immediate refresh so we start with a guaranteed-fresh token.
     log.info("Performing startup Grafana token refresh…")
@@ -152,5 +154,5 @@ async def token_refresh_loop() -> None:
             log.warning("Startup refresh failed — loaded existing token from .env as fallback")
 
     while True:
-        await asyncio.sleep(INTERVAL)
-        await _refresh_once()
+        await asyncio.sleep(INTERVAL if success else RETRY_INTERVAL)
+        success = await _refresh_once()
