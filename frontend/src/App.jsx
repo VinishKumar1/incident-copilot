@@ -666,6 +666,9 @@ function NamespaceSummary({ namespace, issues: liveIssues = [] }) {
       .finally(() => setLoading(false))
   }
 
+  // Auto-generate when tab is opened or namespace changes
+  useEffect(() => { run(false) }, [namespace])
+
   const healthAppearance = { healthy: 'success', degraded: 'warning', critical: 'error' }
 
   return (
@@ -688,7 +691,7 @@ function NamespaceSummary({ namespace, issues: liveIssues = [] }) {
       )}
 
       {!data && !loading && !error && (
-        <p className="mds-hint">Click <strong>Generate Summary</strong> to get a plain-English health briefing for this namespace.</p>
+        <p className="mds-hint">Generating summary…</p>
       )}
 
       {data && (
