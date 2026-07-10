@@ -16,8 +16,8 @@ _IP = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b")
 _HEXLONG = re.compile(r"\b[0-9a-f]{16,}\b")
 _LEVEL = re.compile(r"(?i)(fatal|panic|error|exception|traceback)")
 
-# Levels to exclude from live issues — warnings are noise, not actionable failures
-_EXCLUDED_LEVELS = {"warn", "warning"}
+# Levels to exclude from live issues — only errors, exceptions, and fatals are actionable
+_EXCLUDED_LEVELS = {"warn", "warning", "debug", "info", "information", "trace", "verbose"}
 
 
 def _normalize(line: str) -> str:
