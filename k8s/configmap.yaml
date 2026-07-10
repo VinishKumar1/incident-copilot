@@ -40,3 +40,4 @@ data:
   ARM_CLIENT_ID: vault:ohpiom-nonprod-kv/data/readable/preprod/telikos-first-responder#clientId
   ARM_CLIENT_SECRET: vault:ohpiom-nonprod-kv/data/readable/preprod/telikos-first-responder#clientSecret
   ARM_TENENT_ID: vault:ohpiom-nonprod-kv/data/readable/preprod/telikos-first-responder#tenantId
+  GITHUB_TOKEN: vault:ohpiom-nonprod-kv/data/readable/preprod/telikos-first-responder#githubToken
