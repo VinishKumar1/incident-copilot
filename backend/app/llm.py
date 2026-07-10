@@ -447,6 +447,14 @@ class LLMClient:
                 tools=[{"type": "function", "function": {"name": tool_name, "description": "Structured result.", "parameters": schema}}],
                 tool_choice={"type": "function", "function": {"name": tool_name}},
             )
+            # Track token usage
+            if resp.usage:
+                from .analytics import record_api_usage
+                import asyncio
+                asyncio.ensure_future(record_api_usage(
+                    "openai", settings.openai_analyze_model,
+                    resp.usage.prompt_tokens, resp.usage.completion_tokens,
+                ))
             msg = resp.choices[0].message
             if msg.tool_calls:
                 return json.loads(msg.tool_calls[0].function.arguments or "{}")

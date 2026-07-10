@@ -112,6 +112,11 @@ class LokiClient:
                     import asyncio
                     await asyncio.sleep(5)  # brief wait before next attempt
         resp.raise_for_status()
+        # Track successful Grafana API calls
+        if resp.status_code == 200 and settings.log_source == "grafana":
+            import asyncio
+            from .analytics import record_api_usage
+            asyncio.ensure_future(record_api_usage("grafana", "loki"))
         return resp
 
     def _endpoint(self) -> tuple:
