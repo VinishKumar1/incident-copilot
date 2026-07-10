@@ -241,9 +241,7 @@ function Header({ status, namespaces, onChangeNs, switching, ssoEnabled }) {
             <Tag appearance={status.mock ? 'warning' : 'success'} fit="small">
               {status.mock ? 'MOCK DATA' : 'LIVE'}
             </Tag>
-            <Tag appearance={status.llm_enabled ? 'success' : 'warning'} fit="small">
-              {status.llm_enabled ? 'AI on' : 'AI off'}
-            </Tag>
+
             {status.last_error && (
               <Tag appearance="error" fit="small">poll error</Tag>
             )}
