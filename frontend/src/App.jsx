@@ -731,6 +731,23 @@ function NamespaceSummary({ namespace, issues: liveIssues = [] }) {
               ))}
             </div>
           )}
+
+          {data.remote_api_failures?.length > 0 && (
+            <div className="mds-summary-remote-failures">
+              <h4 className="mds-subheading">🔌 Remote API failures</h4>
+              {data.remote_api_failures.map((f, idx) => (
+                <div key={idx} className="mds-remote-failure-card">
+                  <div className="mds-remote-failure-card__head">
+                    <span className="mds-remote-failure-card__caller">{f.caller}</span>
+                    <span className="mds-remote-failure-card__arrow">→</span>
+                    <span className="mds-remote-failure-card__target">{f.target}</span>
+                    <Badge fit="small">{f.count}</Badge>
+                  </div>
+                  <span className="mds-remote-failure-card__error">{f.error}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

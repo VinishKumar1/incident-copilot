@@ -16,6 +16,9 @@ _IP = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b")
 _HEXLONG = re.compile(r"\b[0-9a-f]{16,}\b")
 _LEVEL = re.compile(r"(?i)(fatal|panic|error|exception|traceback)")
 
+# Levels to exclude from live issues — warnings are noise, not actionable failures
+_EXCLUDED_LEVELS = {"warn", "warning"}
+
 
 def _normalize(line: str) -> str:
     s = line
@@ -52,17 +55,24 @@ def _title(line: str) -> str:
 
 
 def merge_entries(existing: List[Issue], entries: List[LogEntry]) -> List[Issue]:
-    """Fold a batch of log entries into the issue list, returning the updated list."""
+    """Fold a batch of log entries into the issue list, returning the updated list.
+
+    Only errors, exceptions, and fatals are included. Warnings are excluded
+    — they are noise in the live issues view.
+    """
     index = {i.id: i for i in existing}
     for e in entries:
         svc = e.service
+        label_level = (e.labels.get("level") or "").lower()
+        level = "fatal" if label_level in ("fatal", "panic", "critical", "severe") else (
+            label_level if label_level in ("error", "warn", "warning") else detect_level(e.line)
+        )
+        # Skip warnings — live issues should only show errors and exceptions
+        if level in _EXCLUDED_LEVELS:
+            continue
         fp = fingerprint(e.line, svc)
         issue = index.get(fp)
         if issue is None:
-            label_level = (e.labels.get("level") or "").lower()
-            level = "fatal" if label_level in ("fatal", "panic", "critical", "severe") else (
-                label_level if label_level in ("error", "warn", "warning") else detect_level(e.line)
-            )
             issue = Issue(
                 id=fp,
                 title=_title(e.line),

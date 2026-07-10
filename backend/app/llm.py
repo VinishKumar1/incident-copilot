@@ -238,7 +238,12 @@ _NS_SUMMARY_SYSTEM = (
     "You are an SRE summarizing the health of a Kubernetes namespace. "
     "Write for an engineer who needs a quick briefing — be specific (name services, "
     "error types, counts), skip generic advice, no padding. "
-    "Use plain English, no markdown headings."
+    "Use plain English, no markdown headings. "
+    "Pay special attention to remote API / HTTP / DB / Kafka call failures: "
+    "when you see them, always name the calling service AND the exact target "
+    "(e.g. 'iom-web-integrator → GET /api/v1/bookings → 503', "
+    "'offer-service → Kafka topic order-events → produce timeout'). "
+    "List every distinct failing remote call in remote_api_failures."
 )
 
 _NS_SUMMARY_SCHEMA = {
@@ -271,8 +276,22 @@ _NS_SUMMARY_SCHEMA = {
             "type": "string",
             "description": "The single most urgent thing an engineer should investigate first.",
         },
+        "remote_api_failures": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "caller": {"type": "string", "description": "Service making the call, e.g. 'iom-web-integrator'"},
+                    "target": {"type": "string", "description": "Target service + endpoint, e.g. 'GET iom-order-service /v3/orders/{id}'"},
+                    "error": {"type": "string", "description": "Error detail, e.g. '503 Service Unavailable', 'connection timeout'"},
+                    "count": {"type": "integer"},
+                },
+                "required": ["caller", "target", "error", "count"],
+            },
+            "description": "Distinct remote/HTTP/DB/Kafka call failures observed. Empty array if none.",
+        },
     },
-    "required": ["overall_health", "headline", "issues", "top_concern"],
+    "required": ["overall_health", "headline", "issues", "top_concern", "remote_api_failures"],
 }
 
 

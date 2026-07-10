@@ -1107,3 +1107,30 @@ mc-notification {
   color: var(--mds-color-text-secondary, #555);
 }
 .mds-user-email { font-family: monospace; font-size: 0.8rem; }
+
+/* Remote API failures section */
+.mds-summary-remote-failures { margin-top: 1.2rem; }
+.mds-remote-failure-card {
+  background: var(--mds-color-bg-surface, #fff);
+  border: 1px solid var(--mds-color-feedback-danger-subtle, #fdd);
+  border-left: 4px solid var(--mds-color-feedback-danger, #d32f2f);
+  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
+  margin-bottom: 0.5rem;
+}
+.mds-remote-failure-card__head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+}
+.mds-remote-failure-card__caller { font-weight: 700; }
+.mds-remote-failure-card__arrow { color: var(--mds-color-text-secondary, #888); }
+.mds-remote-failure-card__target { font-family: monospace; font-size: 0.8rem; color: var(--mds-color-text-primary, #222); }
+.mds-remote-failure-card__error {
+  display: block;
+  margin-top: 0.3rem;
+  font-size: 0.8rem;
+  color: var(--mds-color-feedback-danger, #d32f2f);
+}
