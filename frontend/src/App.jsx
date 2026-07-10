@@ -1126,6 +1126,73 @@ function DashboardView() {
             </div>
           </div>
 
+          <div className="mds-dashboard__row">
+            <div className="mds-dashboard__panel">
+              <h3 className="mds-dashboard__panel-title">🤖 OpenAI Token Usage</h3>
+              {!data.api_usage?.filter(u => u.api === 'openai').length
+                ? <p className="mds-hint">No OpenAI calls yet.</p>
+                : (() => {
+                    const rows = data.api_usage.filter(u => u.api === 'openai')
+                    const totalTokens = rows.reduce((s, r) => s + (r.total || 0), 0)
+                    const totalCalls = rows.reduce((s, r) => s + (r.calls || 0), 0)
+                    return (
+                      <>
+                        <div className="mds-api-usage-summary">
+                          <span className="mds-api-usage-stat"><strong>{totalCalls}</strong> calls</span>
+                          <span className="mds-api-usage-stat"><strong>{totalTokens.toLocaleString()}</strong> total tokens</span>
+                        </div>
+                        <table className="mds-table">
+                          <thead><tr><th>Model</th><th>Calls</th><th>Prompt</th><th>Completion</th><th>Total</th></tr></thead>
+                          <tbody>
+                            {rows.map((r, i) => (
+                              <tr key={i}>
+                                <td className="mds-hint">{r.model || '—'}</td>
+                                <td>{r.calls}</td>
+                                <td>{(r.prompt || 0).toLocaleString()}</td>
+                                <td>{(r.completion || 0).toLocaleString()}</td>
+                                <td><strong>{(r.total || 0).toLocaleString()}</strong></td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </>
+                    )
+                  })()
+              }
+            </div>
+
+            <div className="mds-dashboard__panel">
+              <h3 className="mds-dashboard__panel-title">📡 Grafana API Calls</h3>
+              {!data.api_usage?.filter(u => u.api === 'grafana').length
+                ? <p className="mds-hint">No Grafana calls recorded yet.</p>
+                : (() => {
+                    const grafanaRows = data.api_usage.filter(u => u.api === 'grafana')
+                    const totalCalls = grafanaRows.reduce((s, r) => s + (r.calls || 0), 0)
+                    return (
+                      <>
+                        <div className="mds-api-usage-summary">
+                          <span className="mds-api-usage-stat"><strong>{totalCalls}</strong> Loki queries</span>
+                        </div>
+                        {data.grafana_hourly?.length > 0 && (
+                          <table className="mds-table">
+                            <thead><tr><th>Hour (ago)</th><th>Queries</th></tr></thead>
+                            <tbody>
+                              {data.grafana_hourly.slice(-8).map((r, i) => (
+                                <tr key={i}>
+                                  <td className="mds-hint">{r.hour}h ago</td>
+                                  <td>{r.calls}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
+                      </>
+                    )
+                  })()
+              }
+            </div>
+          </div>
+
           <div className="mds-dashboard__panel mds-dashboard__panel--full">
             <h3 className="mds-dashboard__panel-title">Recent Activity</h3>
             {data.recent_events.length === 0

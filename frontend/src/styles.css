@@ -1134,3 +1134,18 @@ mc-notification {
   font-size: 0.8rem;
   color: var(--mds-color-feedback-danger, #d32f2f);
 }
+
+/* API usage panels */
+.mds-api-usage-summary {
+  display: flex;
+  gap: 1.5rem;
+  margin-bottom: 0.8rem;
+}
+.mds-api-usage-stat {
+  font-size: 0.9rem;
+  color: var(--mds-color-text-secondary, #555);
+}
+.mds-api-usage-stat strong {
+  font-size: 1.2rem;
+  color: var(--mds-color-text-primary, #222);
+}
