@@ -17,7 +17,7 @@ data:
   USE_MOCK: "false"
   LOG_SOURCE: "grafana"
   K8S_NAMESPACE: "iom-preprod"
-  K8S_CLUSTERS: "ohp-np-west-1,ohp-np-north-1,ohp-prod-west-1,ohp-prod-north-1"
+  K8S_CLUSTERS: "ohp-np-west-1,ohp-np-north-1,ohp-prod-west-1,ohp-prod-north-1,clm-prod-westeurope-1"
   GRAFANA_URL: "https://grafana.maersk.io"
   GRAFANA_DATASOURCE_UID: "loki"
   LOOKBACK_SECONDS: "300"
