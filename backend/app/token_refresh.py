@@ -17,7 +17,7 @@ _ENV_FILE = Path(__file__).parent.parent / ".env"
 _live_token: str = ""
 
 # Full path to az CLI — required when running as a launchd service (no shell PATH).
-_AZ = os.environ.get("AZ_PATH", "/opt/homebrew/bin/az")
+_AZ = os.environ.get("AZ_PATH", "az")
 
 
 def get_live_token() -> str:
