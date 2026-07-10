@@ -25,16 +25,21 @@ def get_live_token() -> str:
 
 
 def _read_env_var(name: str) -> str:
+    # First try the .env file (local dev)
     try:
         for line in _ENV_FILE.read_text().splitlines():
             if line.startswith(f"{name}="):
                 return line.split("=", 1)[1].strip()
     except Exception:
         pass
-    return ""
+    # Fall back to environment variables (K8s / ConfigMap)
+    return os.environ.get(name, "")
 
 
 def _update_env_token(token: str) -> None:
+    # Always update the in-process environment so loki.py picks it up
+    os.environ["GRAFANA_TOKEN"] = token
+    # Also persist to .env file when running locally
     try:
         text = _ENV_FILE.read_text()
         lines = text.splitlines()
@@ -49,8 +54,8 @@ def _update_env_token(token: str) -> None:
         if not replaced:
             new_lines.append(f"GRAFANA_TOKEN={token}")
         _ENV_FILE.write_text("\n".join(new_lines) + "\n")
-    except Exception as exc:
-        log.warning("Could not update .env: %s", exc)
+    except Exception:
+        pass  # No .env file in K8s — that's fine, os.environ is updated above
 
 
 async def _refresh_once() -> bool:
