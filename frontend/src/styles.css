@@ -1149,3 +1149,43 @@ mc-notification {
   font-size: 1.2rem;
   color: var(--mds-color-text-primary, #222);
 }
+
+/* Vibe proxy usage card */
+.mds-vibe-usage-card {
+  background: var(--mds-color-bg-surface, #fff);
+  border: 1px solid var(--mds-color-border, #e0e3e8);
+  border-radius: 8px;
+  padding: 1rem 1.2rem;
+  margin-bottom: 1.2rem;
+}
+.mds-vibe-usage-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.8rem;
+}
+.mds-vibe-usage-card__title { font-weight: 700; font-size: 0.95rem; }
+.mds-vibe-usage-card__models { font-size: 0.78rem; color: var(--mds-color-text-secondary, #888); font-family: monospace; }
+.mds-vibe-usage-card__body {
+  display: flex;
+  gap: 2rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.7rem;
+}
+.mds-vibe-usage-metric { display: flex; flex-direction: column; }
+.mds-vibe-usage-metric__label { font-size: 0.72rem; color: var(--mds-color-text-secondary, #888); text-transform: uppercase; letter-spacing: 0.04em; }
+.mds-vibe-usage-metric__value { font-size: 1.15rem; font-weight: 700; }
+.mds-vibe-usage-metric__value--spend { color: var(--mds-color-feedback-warning, #e65100); }
+.mds-vibe-usage-metric__value--remaining { color: var(--mds-color-feedback-success, #2e7d32); }
+.mds-vibe-usage-bar {
+  height: 6px;
+  background: var(--mds-color-bg-subtle, #f0f2f5);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.mds-vibe-usage-bar__fill {
+  height: 100%;
+  background: linear-gradient(90deg, #2e7d32, #e65100);
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}

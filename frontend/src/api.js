@@ -95,6 +95,9 @@ export const getNamespaceSummary = async (refresh = false) =>
 export const getDashboard = async (hours = 24) =>
   fetch(`/api/analytics?hours=${hours}`, { headers: await authHeaders() }).then(json)
 
+export const getVibeUsage = async () =>
+  fetch('/api/analytics/vibe-usage', { headers: await authHeaders() }).then(json)
+
 export const sendChat = async (issueId, messages) =>
   fetch('/api/chat', {
     method: 'POST',

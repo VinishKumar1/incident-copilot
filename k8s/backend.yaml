@@ -18,6 +18,11 @@ spec:
     metadata:
       labels:
         app: tfr-backend
+      annotations:
+        vault.security.banzaicloud.io/vault-addr: https://mss.maersk.io
+        vault.security.banzaicloud.io/vault-path: perpetual-kubernetes-nonprod-ohp-np-west-1
+        vault.security.banzaicloud.io/vault-role: ohpiom--ohpiom-np-sa-ohp-np-west-1
+        vault.security.banzaicloud.io/vault-skip-verify: "true"
     spec:
       serviceAccountName: ohpiom-np-sa
       imagePullSecrets:
