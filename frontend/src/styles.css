@@ -1189,3 +1189,163 @@ mc-notification {
   border-radius: 3px;
   transition: width 0.4s ease;
 }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Dark theme — activated automatically when the OS/browser prefers dark mode
+   ════════════════════════════════════════════════════════════════════════════ */
+@media (prefers-color-scheme: dark) {
+  /* ── Base token overrides ── */
+  :root {
+    --mds_brand_appearance_neutral_weakest_background: #0f1117;
+    --mds_brand_appearance_neutral_default_text-color: #e2e8f0;
+    --mds_brand_appearance_primary_default_background: #60a5fa;
+    --mds_brand_appearance_neutral_inverse_background: #001829;
+    --mds_brand_appearance_neutral_inverse_text-color: #f0f4f8;
+    --mds_brand_appearance_secondary_default_background: #38bdf8;
+    --mds-color-bg-surface: #1a1f2e;
+    --mds-color-bg-subtle: #252b3b;
+    --mds-color-border: #2d3448;
+    --mds-color-text-primary: #e2e8f0;
+    --mds-color-text-secondary: #94a3b8;
+    --mds-color-surface-variant: #1e2433;
+    --mds-color-feedback-danger: #f87171;
+    --mds-color-feedback-danger-subtle: #3b1515;
+    --mds-color-feedback-warning: #fb923c;
+    --mds-color-feedback-success: #4ade80;
+    --mds-color-primary: #3b82f6;
+  }
+
+  body {
+    background: #0f1117;
+    color: #e2e8f0;
+  }
+
+  a { color: #60a5fa; }
+
+  /* ── Sidebar ── */
+  .mds-sidebar {
+    background: #141824;
+    border-right-color: #2d3448;
+  }
+
+  /* ── Issue cards ── */
+  .mds-issue-card {
+    background: #1a1f2e;
+    border-color: #2d3448;
+  }
+  .mds-issue-card:hover { background: #1e2433; }
+  .mds-issue-card--selected { border-color: #3b82f6; background: #1e2d45; }
+  .mds-issue-card__service { color: #e2e8f0; }
+  .mds-issue-card__text { color: #94a3b8; }
+
+  /* ── Detail panel ── */
+  .mds-detail { background: #1a1f2e; }
+  .mds-detail__head { border-bottom-color: #2d3448; }
+
+  /* ── Tabs ── */
+  .mds-tab-bar { background: #141824; border-bottom-color: #2d3448; }
+  .mds-tab { color: #94a3b8; }
+  .mds-tab--active { color: #60a5fa; border-bottom-color: #3b82f6; }
+  .mds-tab:hover:not(.mds-tab--active) { color: #e2e8f0; background: rgba(255,255,255,0.05); }
+
+  /* ── Namespace selector ── */
+  .mds-ns-bar { background: #141824; border-bottom-color: #2d3448; }
+  .mds-native-select {
+    background: #1e2433;
+    border-color: #2d3448;
+    color: #e2e8f0;
+  }
+  .mds-native-select option { background: #1e2433; color: #e2e8f0; }
+
+  /* ── Buttons ── */
+  .mds-btn--filled.mds-btn--primary { background: #1d4ed8; color: #fff; }
+  .mds-btn--filled.mds-btn--primary:hover:not(:disabled) { background: #2563eb; }
+  .mds-btn--filled.mds-btn--neutral { background: #1e2d45; color: #e2e8f0; }
+  .mds-btn--filled.mds-btn--neutral:hover:not(:disabled) { background: #263550; }
+  .mds-btn--outlined { border-color: #2d3448; color: #94a3b8; }
+  .mds-btn--outlined:hover:not(:disabled) { background: rgba(255,255,255,0.06); }
+  .mds-btn--ghost { color: #94a3b8; }
+  .mds-btn--ghost:hover:not(:disabled) { background: rgba(255,255,255,0.06); }
+  .mds-btn:disabled { opacity: 0.4; }
+
+  /* ── Notifications ── */
+  .mds-notification--info    { background: #0c2340; border-color: #1e4a7a; color: #93c5fd; }
+  .mds-notification--success { background: #052e16; border-color: #166534; color: #86efac; }
+  .mds-notification--warning { background: #2d1a05; border-color: #92400e; color: #fcd34d; }
+  .mds-notification--error   { background: #2d0a0a; border-color: #7f1d1d; color: #fca5a5; }
+
+  /* ── Search / chat inputs ── */
+  .mds-search-bar { background: #1a1f2e; border-bottom-color: #2d3448; }
+  .mds-search-input {
+    background: #1e2433;
+    border-color: #2d3448;
+    color: #e2e8f0;
+  }
+  .mds-search-input::placeholder { color: #64748b; }
+  .mds-chat-input {
+    background: #1e2433;
+    border-color: #2d3448;
+    color: #e2e8f0;
+  }
+
+  /* ── Tables ── */
+  .mds-table { border-color: #2d3448; }
+  .mds-table th { background: #1e2433; color: #94a3b8; border-bottom-color: #2d3448; }
+  .mds-table td { border-bottom-color: #2d3448; color: #e2e8f0; }
+  .mds-table tr:hover td { background: #1e2433; }
+
+  /* ── Summary / analysis panels ── */
+  .mds-ns-summary { background: #1a1f2e; }
+  .mds-section__head { border-bottom-color: #2d3448; }
+  .mds-summary-body { color: #e2e8f0; }
+
+  /* ── Stat cards (dashboard) ── */
+  .mds-stat-card { background: #1e2433; border-color: #2d3448; }
+  .mds-stat-card__label { color: #94a3b8; }
+
+  /* ── Dashboard panels ── */
+  .mds-dashboard__panel { background: #1a1f2e; border-color: #2d3448; }
+  .mds-dashboard__panel-title { color: #94a3b8; }
+  .mds-dashboard__toolbar { border-bottom-color: #2d3448; }
+  .mds-activity-bar__label { color: #94a3b8; }
+  .mds-activity-bar__bar { background: #2d3448; }
+
+  /* ── API usage card ── */
+  .mds-api-usage-summary { background: #1e2433; border-color: #2d3448; }
+  .mds-api-usage-stat strong { color: #e2e8f0; }
+
+  /* ── Vibe usage card ── */
+  .mds-vibe-usage-card { background: #1a1f2e; border-color: #2d3448; }
+  .mds-vibe-usage-bar { background: #2d3448; }
+
+  /* ── Remote failure cards ── */
+  .mds-remote-failure-card { background: #1a1f2e; border-color: #7f1d1d; border-left-color: #f87171; }
+  .mds-remote-failure-card__target { color: #e2e8f0; }
+  .mds-remote-failure-card__arrow { color: #64748b; }
+
+  /* ── Login page ── */
+  .mds-login-box { background: #1a1f2e; border-color: #2d3448; }
+  .mds-login-title { color: #e2e8f0; }
+
+  /* ── Adhoc / search panels ── */
+  .mds-adhoc-form { background: #1a1f2e; border-color: #2d3448; }
+  .mds-search-result { background: #1a1f2e; border-color: #2d3448; }
+  .mds-search-result__header { border-bottom-color: #2d3448; }
+
+  /* ── Inline code / pre ── */
+  pre, code { background: #252b3b; color: #e2e8f0; }
+
+  /* ── Warning badge (stale/adhoc) ── */
+  .mds-stale-badge { background: #2d1a05; color: #fcd34d; }
+  .mds-adhoc-badge { background: #1a2d45; color: #93c5fd; }
+
+  /* ── Hint text ── */
+  .mds-hint { color: #64748b; }
+  .mds-error { color: #f87171; }
+
+  /* ── Scrollbars ── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: #1a1f2e; }
+  ::-webkit-scrollbar-thumb { background: #2d3448; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #3d4a5e; }
+}

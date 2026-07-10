@@ -29,7 +29,7 @@ data:
   OPENAI_API_VERSION: "2024-10-21"
   OPENAI_ANALYZE_MODEL: "claude-sonnet-4-6"
   OPENAI_CHAT_MODEL: "claude-sonnet-4-6"
-  CORS_ORIGINS: "https://telikos-first-responder.sit.maersk-digital.net"
+  CORS_ORIGINS: "https://first-responder.sit.maersk-digital.net"
   SSO_ENABLED: "true"
   AZURE_AD_TENANT_ID: "05d75c05-fa1a-42e7-9cf1-eb416c396f2d"
   AZURE_AD_CLIENT_ID: "fdb5c5f4-d589-495b-8b84-c0f3abad2eb0"
