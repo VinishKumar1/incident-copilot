@@ -98,6 +98,12 @@ export const getDashboard = async (hours = 24) =>
 export const getVibeUsage = async () =>
   fetch('/api/analytics/vibe-usage', { headers: await authHeaders() }).then(json)
 
+export const getSnowStatus = async () =>
+  fetch('/api/snow/status', { headers: await authHeaders() }).then(json)
+
+export const getSnowIncident = async (number, minutes = 360) =>
+  fetch(`/api/snow/incident/${encodeURIComponent(number)}?minutes=${minutes}`, { headers: await authHeaders() }).then(json)
+
 export const sendChat = async (issueId, messages) =>
   fetch('/api/chat', {
     method: 'POST',

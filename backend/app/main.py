@@ -12,7 +12,7 @@ from .analytics import init_analytics, record_event
 from .auth import require_user
 from .config import settings
 from .poller import poll_loop
-from .routes import analytics, chat, issues
+from .routes import analytics, chat, issues, snow
 from .token_refresh import token_refresh_loop
 
 logging.basicConfig(level=logging.INFO)
@@ -48,6 +48,7 @@ _auth = [Depends(require_user)]
 app.include_router(issues.router, dependencies=_auth)
 app.include_router(chat.router, dependencies=_auth)
 app.include_router(analytics.router, dependencies=_auth)
+app.include_router(snow.router, dependencies=_auth)
 
 
 # ─── Usage tracking middleware ────────────────────────────────────────────────
