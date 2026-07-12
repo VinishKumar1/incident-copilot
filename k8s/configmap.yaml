@@ -33,7 +33,11 @@ data:
   SSO_ENABLED: "true"
   AZURE_AD_TENANT_ID: "05d75c05-fa1a-42e7-9cf1-eb416c396f2d"
   AZURE_AD_CLIENT_ID: "fdb5c5f4-d589-495b-8b84-c0f3abad2eb0"
-  # ── Secrets (injected from ohpiom-nonprod-kv by cluster KV integration) ──
+  # ── ServiceNow integration ──────────────────────────────────────────────────
+  SNOW_INSTANCE_URL: "https://maersk.service-now.com"
+  SNOW_USERNAME: vault:ohpiom-nonprod-kv/data/readable/preprod/telikos-first-responder#snowUsername
+  SNOW_PASSWORD: vault:ohpiom-nonprod-kv/data/readable/preprod/telikos-first-responder#snowPassword
+
   GRAFANA_TOKEN: vault:ohpiom-nonprod-kv/data/readable/preprod/telikos-first-responder#grafanaToken
   OPENAI_API_KEY: vault:ohpiom-nonprod-kv/data/readable/preprod/telikos-first-responder#apiKey
   DATABASE_URL: vault:ohpiom-nonprod-kv/data/readable/preprod/telikos-first-responder#dbUrl

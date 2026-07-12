@@ -1349,3 +1349,107 @@ mc-notification {
   ::-webkit-scrollbar-thumb { background: #2d3448; border-radius: 3px; }
   ::-webkit-scrollbar-thumb:hover { background: #3d4a5e; }
 }
+
+/* ── Incident Search ──────────────────────────────────────────────────────── */
+.mds-incident-view { padding: 1.5rem; max-width: 1200px; }
+
+.mds-incident-search-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: 1rem 1.2rem;
+  background: var(--mds-color-bg-surface, #fff);
+  border: 1px solid var(--mds-color-border, #e0e3e8);
+  border-radius: 8px;
+  margin-bottom: 1.2rem;
+}
+.mds-incident-search-bar__title { display: flex; align-items: center; gap: 8px; font-size: 0.95rem; }
+.mds-incident-search-bar__icon { font-size: 1.2rem; }
+.mds-incident-search-bar__inputs { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.mds-incident-details {
+  background: var(--mds-color-bg-surface, #fff);
+  border: 1px solid var(--mds-color-border, #e0e3e8);
+  border-radius: 8px;
+  padding: 1rem 1.2rem;
+  margin-bottom: 1.2rem;
+}
+.mds-incident-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .5rem;
+  margin-bottom: .6rem;
+}
+.mds-incident-header__left { display: flex; align-items: center; gap: .6rem; }
+.mds-incident-header__right { display: flex; gap: 1rem; font-size: .8rem; }
+.mds-incident-number { font-size: 1.1rem; font-weight: 700; font-family: monospace; }
+.mds-incident-state { font-size: .85rem; font-weight: 600; }
+.mds-incident-description { margin: .4rem 0 .8rem; color: var(--mds-color-text-primary, #222); }
+.mds-incident-detail-block { margin-top: .5rem; }
+.mds-incident-detail-block summary { cursor: pointer; font-size: .8rem; }
+.mds-incident-pre {
+  margin: .4rem 0 0;
+  padding: .6rem;
+  background: var(--mds-color-bg-subtle, #f5f7fa);
+  border-radius: 4px;
+  font-size: .78rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.mds-incident-identifiers { display: flex; flex-direction: column; gap: .8rem; }
+.mds-incident-id-block {
+  background: var(--mds-color-bg-surface, #fff);
+  border: 1px solid var(--mds-color-border, #e0e3e8);
+  border-radius: 8px;
+  padding: .8rem 1rem;
+}
+.mds-incident-id-block__header {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  flex-wrap: wrap;
+  margin-bottom: .4rem;
+}
+.mds-incident-id-type { font-size: .8rem; color: var(--mds-color-text-secondary, #666); }
+.mds-incident-id-value {
+  font-family: monospace;
+  font-size: .9rem;
+  font-weight: 700;
+  background: var(--mds-color-bg-subtle, #f5f7fa);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.mds-incident-issues { display: flex; flex-direction: column; gap: 4px; margin-top: .4rem; }
+.mds-incident-issue-row {
+  display: grid;
+  grid-template-columns: 140px 180px 1fr;
+  gap: .5rem;
+  font-size: .8rem;
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: var(--mds-color-bg-subtle, #f5f7fa);
+  align-items: start;
+}
+.mds-incident-issue-ns { color: var(--mds-color-text-secondary, #666); font-size: .75rem; font-family: monospace; }
+.mds-incident-issue-svc { font-weight: 600; color: var(--mds-color-text-primary, #222); }
+.mds-incident-issue-text { color: var(--mds-color-text-primary, #333); word-break: break-word; }
+
+@media (prefers-color-scheme: dark) {
+  .mds-incident-search-bar,
+  .mds-incident-details,
+  .mds-incident-id-block { background: #1a1f2e; border-color: #2d3448; }
+  .mds-incident-pre,
+  .mds-incident-id-value,
+  .mds-incident-issue-row { background: #252b3b; }
+  .mds-incident-description,
+  .mds-incident-issue-svc,
+  .mds-incident-issue-text { color: #e2e8f0; }
+}

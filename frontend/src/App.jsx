@@ -6,6 +6,7 @@ import {
   getStatus, listIssues, analyzeIssue, sendChat, listNamespaces,
   setNamespace, matchCode, fixIt, searchKey, searchSummary,
   createAdhocIssue, getNamespaceSummary, getDashboard, getVibeUsage,
+  getSnowStatus, getSnowIncident,
 } from './api'
 
 const REFRESH_MS = 5000
@@ -137,10 +138,11 @@ function FreshnessPill({ ts }) {
 // ─── Tab bar (styled with MDS tokens, native React click handlers) ───────────
 
 const TABS = [
-  { value: 'issues', label: 'Live Issues' },
-  { value: 'summary', label: '📋 Summary' },
-  { value: 'search', label: '🔎 Search by Key' },
-  { value: 'dashboard', label: '📊 Dashboard' },
+  { value: 'issues',   label: 'Live Issues' },
+  { value: 'summary',  label: '📋 Summary' },
+  { value: 'search',   label: '🔎 Search by Key' },
+  { value: 'incident', label: '🎫 Incident Search' },
+  { value: 'dashboard',label: '📊 Dashboard' },
 ]
 
 function TabBar({ value, onChange, tabs = TABS }) {
@@ -1024,6 +1026,186 @@ function ActivityBar({ hourly }) {
   )
 }
 
+// ─── Incident Search (ServiceNow) ────────────────────────────────────────────
+
+const ID_TYPE_LABELS = {
+  booking: '📦 Booking',
+  bol: '📄 Bill of Lading',
+  container: '🚢 Container',
+  invoice: '🧾 Invoice',
+  shipment: '📮 Shipment',
+  po: '📋 Purchase Order',
+}
+
+const SNOW_STATE_COLOUR = {
+  New: 'var(--mds-color-feedback-warning, #e65100)',
+  'In Progress': 'var(--mds-color-feedback-warning, #e65100)',
+  Resolved: 'var(--mds-color-feedback-success, #2e7d32)',
+  Closed: 'var(--mds-color-text-secondary, #888)',
+  'On Hold': '#6366f1',
+  Cancelled: 'var(--mds-color-text-secondary, #888)',
+}
+
+function IncidentView() {
+  const [incidentNo, setIncidentNo] = useState('')
+  const [minutes, setMinutes] = useState(360)
+  const [loading, setLoading] = useState(false)
+  const [result, setResult] = useState(null)
+  const [error, setError] = useState(null)
+  const [snowStatus, setSnowStatus] = useState(null)
+
+  useEffect(() => {
+    getSnowStatus().then(setSnowStatus).catch(() => {})
+  }, [])
+
+  const search = async () => {
+    if (!incidentNo.trim()) return
+    setLoading(true)
+    setError(null)
+    setResult(null)
+    try {
+      const data = await getSnowIncident(incidentNo.trim(), minutes)
+      setResult(data)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleKey = (e) => { if (e.key === 'Enter') search() }
+
+  const inc = result?.incident
+  const identifiers = result?.identifiers || {}
+  const lokiResults = result?.loki_results || {}
+  const hasIdentifiers = Object.keys(identifiers).length > 0
+
+  return (
+    <div className="mds-incident-view">
+      <div className="mds-incident-search-bar">
+        <div className="mds-incident-search-bar__title">
+          <span className="mds-incident-search-bar__icon">🎫</span>
+          <strong>ServiceNow Incident Search</strong>
+          {snowStatus && !snowStatus.configured && (
+            <Tag appearance="warning" fit="small" style={{ marginLeft: 8 }}>SNOW not configured</Tag>
+          )}
+        </div>
+        <div className="mds-incident-search-bar__inputs">
+          <input
+            className="mds-search-input"
+            placeholder="Incident number e.g. INC0012345"
+            value={incidentNo}
+            onChange={e => setIncidentNo(e.target.value)}
+            onKeyDown={handleKey}
+            style={{ width: 260 }}
+          />
+          <select
+            className="mds-native-select mds-native-select--sm"
+            value={minutes}
+            onChange={e => setMinutes(Number(e.target.value))}
+          >
+            <option value={120}>Last 2 h</option>
+            <option value={360}>Last 6 h</option>
+            <option value={720}>Last 12 h</option>
+            <option value={1440}>Last 24 h</option>
+            <option value={4320}>Last 3 days</option>
+          </select>
+          <Btn variant="filled" appearance="primary" fit="small" disabled={loading || !incidentNo.trim()} onClick={search}>
+            {loading ? <><Spinner /> Searching…</> : 'Search'}
+          </Btn>
+        </div>
+      </div>
+
+      {error && <Notification appearance="error" heading="Search failed">{error}</Notification>}
+
+      {!result && !loading && !error && (
+        <p className="mds-hint" style={{ padding: '2rem' }}>
+          Enter a ServiceNow incident number to fetch details and search Grafana logs for related identifiers (bookings, containers, BOLs, invoices).
+        </p>
+      )}
+
+      {inc && (
+        <div className="mds-incident-details">
+          <div className="mds-incident-header">
+            <div className="mds-incident-header__left">
+              <span className="mds-incident-number">{inc.number}</span>
+              <span className="mds-incident-state" style={{ color: SNOW_STATE_COLOUR[inc.state] || 'inherit' }}>
+                ● {inc.state}
+              </span>
+              {inc.priority && <Tag appearance="neutral" fit="small">{inc.priority}</Tag>}
+            </div>
+            <div className="mds-incident-header__right mds-hint">
+              {inc.assignment_group && <span>👥 {inc.assignment_group}</span>}
+              {inc.opened_at && <span>🕐 {new Date(inc.opened_at).toLocaleString()}</span>}
+            </div>
+          </div>
+          <p className="mds-incident-description">{inc.short_description}</p>
+          {inc.description && inc.description !== inc.short_description && (
+            <details className="mds-incident-detail-block">
+              <summary className="mds-hint">Full description</summary>
+              <pre className="mds-incident-pre">{inc.description}</pre>
+            </details>
+          )}
+          {inc.close_notes && (
+            <details className="mds-incident-detail-block">
+              <summary className="mds-hint">Resolution notes</summary>
+              <pre className="mds-incident-pre">{inc.close_notes}</pre>
+            </details>
+          )}
+        </div>
+      )}
+
+      {inc && !hasIdentifiers && (
+        <Notification appearance="warning" heading="No identifiers found">
+          Could not extract any booking, container, BOL or invoice numbers from this incident. You can use Search by Key tab to search manually.
+        </Notification>
+      )}
+
+      {hasIdentifiers && (
+        <div className="mds-incident-identifiers">
+          <h3 className="mds-section__title" style={{ padding: '0 0 .5rem' }}>
+            Extracted identifiers — searching last {result.minutes < 60 ? `${result.minutes}m` : `${result.minutes / 60}h`} in Grafana
+          </h3>
+          {Object.entries(identifiers).map(([type, values]) =>
+            values.map(val => {
+              const res = lokiResults[val]
+              const issues = res?.issues || []
+              const nsCount = res?.namespaces?.length || 0
+              const hasError = !!res?.error
+              return (
+                <div key={`${type}-${val}`} className="mds-incident-id-block">
+                  <div className="mds-incident-id-block__header">
+                    <span className="mds-incident-id-type">{ID_TYPE_LABELS[type] || type}</span>
+                    <code className="mds-incident-id-value">{val}</code>
+                    {hasError
+                      ? <Tag appearance="error" fit="small">Search error</Tag>
+                      : issues.length === 0
+                        ? <Tag appearance="neutral" fit="small">No issues found</Tag>
+                        : <Tag appearance="error" fit="small">{issues.length} issue{issues.length !== 1 ? 's' : ''} across {nsCount} namespace{nsCount !== 1 ? 's' : ''}</Tag>
+                    }
+                  </div>
+                  {hasError && <p className="mds-error" style={{ marginTop: 4, fontSize: '0.8rem' }}>{res.error}</p>}
+                  {issues.length > 0 && (
+                    <div className="mds-incident-issues">
+                      {issues.map((issue, i) => (
+                        <div key={i} className="mds-incident-issue-row">
+                          <span className="mds-incident-issue-ns">{issue.namespace}</span>
+                          <span className="mds-incident-issue-svc">{issue.service}</span>
+                          <span className="mds-incident-issue-text">{issue.text}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function DashboardView() {
   const [hours, setHours] = useState(24)
   const [data, setData] = useState(null)
@@ -1340,6 +1522,7 @@ function AppShell({ ssoEnabled }) {
         )}
         {tab === 'summary' && <div className="mds-main mds-main--single"><NamespaceSummary namespace={status?.namespace || ''} issues={issues} /></div>}
         {tab === 'search'  && <div className="mds-main mds-main--single"><SearchView /></div>}
+        {tab === 'incident' && <div className="mds-main mds-main--single"><IncidentView /></div>}
         {tab === 'dashboard' && <div className="mds-main mds-main--single"><DashboardView /></div>}
       </div>
     </div>
@@ -1379,6 +1562,11 @@ function AppShell({ ssoEnabled }) {
         {tab === 'search' && (
           <div className="mds-main mds-main--single">
             <SearchView />
+          </div>
+        )}
+        {tab === 'incident' && (
+          <div className="mds-main mds-main--single">
+            <IncidentView />
           </div>
         )}
         {tab === 'dashboard' && isAdmin && (

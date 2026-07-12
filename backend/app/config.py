@@ -70,6 +70,11 @@ class Settings(BaseSettings):
     def k8s_cluster_list(self) -> list:
         return [c.strip() for c in self.k8s_clusters.split(",") if c.strip()]
 
+    # ServiceNow integration
+    snow_instance_url: str = "https://maersk.service-now.com"
+    snow_username: str = ""
+    snow_password: str = ""
+
     # Server
     cors_origins: str = "http://localhost:5173"
 
