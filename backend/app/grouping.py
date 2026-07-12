@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from typing import List
 
@@ -15,6 +16,8 @@ _TS = re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d
 _IP = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b")
 _HEXLONG = re.compile(r"\b[0-9a-f]{16,}\b")
 _LEVEL = re.compile(r"(?i)(fatal|panic|error|exception|traceback)")
+# Matches "level":"DEBUG" or level=DEBUG or "level":"debug" etc. in log body
+_LEVEL_FIELD = re.compile(r'(?i)["\']?level["\']?\s*[:=]\s*["\']?(\w+)["\']?')
 
 # Levels to exclude from live issues — only errors, exceptions, and fatals are actionable
 _EXCLUDED_LEVELS = {"warn", "warning", "debug", "info", "information", "trace", "verbose"}
@@ -38,10 +41,37 @@ def fingerprint(line: str, service: str) -> str:
     return h[:16]
 
 
+def _level_from_body(line: str) -> str | None:
+    """Try to extract a level field from the log line body (JSON or key=value)."""
+    # Fast path: try JSON parse
+    try:
+        obj = json.loads(line)
+        for key in ("level", "Level", "LEVEL", "severity", "log.level"):
+            val = obj.get(key)
+            if val:
+                return str(val).lower()
+    except Exception:
+        pass
+    # Fallback: regex for level=X or "level":"X"
+    m = _LEVEL_FIELD.search(line)
+    if m:
+        return m.group(1).lower()
+    return None
+
+
 def detect_level(line: str) -> str:
+    # First try to read level from the log body itself
+    body_level = _level_from_body(line)
+    if body_level:
+        if body_level in ("fatal", "panic", "critical", "severe"):
+            return "fatal"
+        if body_level in _EXCLUDED_LEVELS:
+            return body_level  # will be filtered out
+    # Fall back to keyword scan
     m = _LEVEL.search(line)
     if not m:
-        return "error"
+        # No level field and no error keywords — skip (treat as non-actionable)
+        return "info"
     word = m.group(1).lower()
     if word in ("fatal", "panic"):
         return "fatal"
