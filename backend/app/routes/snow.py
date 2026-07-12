@@ -14,7 +14,7 @@ router = APIRouter(prefix="/api/snow", tags=["snow"])
 
 
 @router.get("/incident/{number}", dependencies=[Depends(require_user)])
-async def get_incident(number: str, minutes: int = 360) -> dict[str, Any]:
+async def get_incident(number: str, minutes: int = 43200) -> dict[str, Any]:
     """Fetch a ServiceNow incident, extract business identifiers, and search Loki for each.
 
     Returns:

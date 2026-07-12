@@ -1048,7 +1048,6 @@ const SNOW_STATE_COLOUR = {
 
 function IncidentView() {
   const [incidentNo, setIncidentNo] = useState('')
-  const [minutes, setMinutes] = useState(360)
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
@@ -1064,7 +1063,7 @@ function IncidentView() {
     setError(null)
     setResult(null)
     try {
-      const data = await getSnowIncident(incidentNo.trim(), minutes)
+      const data = await getSnowIncident(incidentNo.trim(), 43200)
       setResult(data)
     } catch (e) {
       setError(e.message)
@@ -1105,24 +1104,19 @@ function IncidentView() {
             onKeyDown={handleKey}
             style={{ width: 260 }}
           />
-          <select
-            className="mds-native-select mds-native-select--sm"
-            value={minutes}
-            onChange={e => setMinutes(Number(e.target.value))}
-          >
-            <option value={120}>Last 2 h</option>
-            <option value={360}>Last 6 h</option>
-            <option value={720}>Last 12 h</option>
-            <option value={1440}>Last 24 h</option>
-            <option value={4320}>Last 3 days</option>
-          </select>
           <Btn variant="filled" appearance="primary" fit="small" disabled={loading || !incidentNo.trim()} onClick={search}>
             {loading ? <><Spinner /> Searching…</> : 'Search'}
           </Btn>
         </div>
       </div>
 
-      {error && <Notification appearance="error" heading="Search failed">{error}</Notification>}
+      {error && (
+        <Notification appearance="error" heading="Search failed">
+          {error.includes('503') || error.includes('not configured')
+            ? 'ServiceNow credentials are not configured. Ask your admin to set SNOW_USERNAME and SNOW_PASSWORD in the ConfigMap.'
+            : error}
+        </Notification>
+      )}
 
       {!result && !loading && !error && (
         <p className="mds-hint" style={{ padding: '2rem' }}>
@@ -1170,7 +1164,7 @@ function IncidentView() {
       {hasIdentifiers && (
         <div className="mds-incident-identifiers">
           <h3 className="mds-section__title" style={{ padding: '0 0 .5rem' }}>
-            Extracted identifiers — searching last {result.minutes < 60 ? `${result.minutes}m` : `${result.minutes / 60}h`} in Grafana
+          Extracted identifiers — searching all available logs in Grafana
           </h3>
           {Object.entries(identifiers).map(([type, values]) =>
             values.map(val => {
