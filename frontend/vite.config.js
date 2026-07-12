@@ -12,4 +12,8 @@ export default defineConfig({
       '/auth': 'http://localhost:8077',
     },
   },
+  test: {
+    environment: 'jsdom',
+    globals: true,
+  },
 })
