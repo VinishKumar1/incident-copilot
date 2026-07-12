@@ -26,11 +26,17 @@ def _error_query(namespace: str) -> str:
     """Build a Loki LogQL query for the given namespace.
     Uses k8s_cluster as the second label so the query works for ANY namespace
     and satisfies Maersk Loki's 2-label minimum.
-    Excludes lines whose level label is debug/info/trace to avoid noise."""
+    Excludes lines whose level label OR JSON body level field is debug/info/trace."""
     return (
         f'{{namespace="{namespace}", {_cluster_selector()}}} '
         r'|~ "(?i)\\b(error|exception|fatal|panic|traceback)\\b"'
         r' | level!~"(?i)^(debug|info|information|trace|verbose)$"'
+        r' != "\"level\":\"DEBUG\""'
+        r' != "\"level\":\"INFO\""'
+        r' != "\"level\":\"TRACE\""'
+        r' != "level=DEBUG"'
+        r' != "level=INFO"'
+        r' != "level=TRACE"'
     )
 
 # Synthetic log lines used in mock mode so the app runs with no infra.
