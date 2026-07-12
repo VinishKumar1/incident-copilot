@@ -72,6 +72,9 @@ class Settings(BaseSettings):
 
     # ServiceNow integration
     snow_instance_url: str = "https://maersk.service-now.com"
+    snow_client_id: str = ""    # Azure AD app client_id with SNOW permission
+    snow_client_secret: str = ""  # Azure AD app client_secret
+    # Legacy basic auth (unused if snow_client_id+secret are set)
     snow_username: str = ""
     snow_password: str = ""
 

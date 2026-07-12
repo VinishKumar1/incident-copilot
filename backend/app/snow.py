@@ -1,10 +1,8 @@
 """ServiceNow integration — fetch incident details and extract business identifiers.
 
-Authentication strategy (in priority order):
-1. OAuth 2.0 ROPC flow via Azure AD — uses SNOW_USERNAME + SNOW_PASSWORD to obtain
-   a Bearer token from Azure AD for the ServiceNow enterprise application.
-   Requires: ARM_CLIENT_ID, ARM_CLIENT_SECRET, AZURE_AD_TENANT_ID, SNOW_USERNAME, SNOW_PASSWORD.
-2. Basic Auth fallback — uses SNOW_USERNAME + SNOW_PASSWORD directly against SNOW.
+Authentication: OAuth 2.0 Client Credentials flow via Azure AD.
+Requires: SNOW_CLIENT_ID, SNOW_CLIENT_SECRET, AZURE_AD_TENANT_ID in environment.
+The Azure AD app must have the ServiceNow enterprise app permission granted.
 """
 from __future__ import annotations
 
@@ -16,9 +14,8 @@ import httpx
 
 from .config import settings
 
-# Azure AD OAuth 2.0 ROPC token endpoint
 _TOKEN_URL = "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
-# ServiceNow enterprise app ID in Azure AD (resource for scope)
+# ServiceNow enterprise app ID in Azure AD
 _SNOW_RESOURCE_ID = "f9fdc385-82e7-48b4-b70d-821e7392834c"
 
 # ── Regex patterns for business identifiers ────────────────────────────────────
@@ -31,7 +28,6 @@ _PATTERNS: dict[str, re.Pattern] = {
     "po":        re.compile(r"\b(?:PO|P\.O\.)[-/]?\s*(\d{6,12})\b", re.IGNORECASE),
 }
 
-# Fields from the SNOW incident we search for identifiers
 _SEARCH_FIELDS = (
     "short_description",
     "description",
@@ -43,7 +39,7 @@ _SEARCH_FIELDS = (
 
 
 class SnowClient:
-    """Thin wrapper around the ServiceNow Table REST API with Azure AD OAuth support."""
+    """ServiceNow Table REST API client using Azure AD Client Credentials OAuth."""
 
     def __init__(self) -> None:
         self._base = settings.snow_instance_url.rstrip("/")
@@ -52,76 +48,42 @@ class SnowClient:
 
     @property
     def configured(self) -> bool:
-        return bool(settings.snow_username and settings.snow_password)
-
-    def _oauth_configured(self) -> bool:
+        """True when OAuth client credentials are available."""
         return bool(
-            settings.azure_ad_tenant_id
-            and settings.openai_api_key  # reuse ARM_CLIENT_SECRET via arm_client_secret
-            and settings.snow_username
-            and settings.snow_password
+            settings.snow_client_id
+            and settings.snow_client_secret
+            and settings.azure_ad_tenant_id
         )
 
-    @property
-    def _arm_client_secret(self) -> str:
-        """Read ARM_CLIENT_SECRET from environment (not in Settings model — read directly)."""
-        import os
-        return os.environ.get("ARM_CLIENT_SECRET", "")
-
-    @property
-    def _arm_client_id(self) -> str:
-        import os
-        return os.environ.get("ARM_CLIENT_ID", settings.azure_ad_client_id)
-
-    async def _get_oauth_token(self) -> str | None:
-        """Obtain a Bearer token from Azure AD using ROPC flow for ServiceNow."""
-        if not (settings.azure_ad_tenant_id and self._arm_client_id
-                and self._arm_client_secret and settings.snow_username
-                and settings.snow_password):
-            return None
-
-        # Return cached token if still valid (5 min buffer)
+    async def _get_token(self) -> str:
+        """Obtain a Bearer token from Azure AD using Client Credentials flow."""
         if self._cached_token and time.time() < self._token_expiry - 300:
             return self._cached_token
 
         url = _TOKEN_URL.format(tenant=settings.azure_ad_tenant_id)
         data = {
-            "grant_type": "password",
-            "client_id": self._arm_client_id,
-            "client_secret": self._arm_client_secret,
-            "username": settings.snow_username,
-            "password": settings.snow_password,
-            "scope": f"{_SNOW_RESOURCE_ID}/user_impersonation",
+            "grant_type": "client_credentials",
+            "client_id": settings.snow_client_id,
+            "client_secret": settings.snow_client_secret,
+            "scope": f"{_SNOW_RESOURCE_ID}/.default",
         }
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post(url, data=data)
-            resp.raise_for_status()
+            if resp.status_code != 200:
+                raise RuntimeError(
+                    f"Azure AD token request failed {resp.status_code}: {resp.text[:300]}"
+                )
             token_data = resp.json()
             self._cached_token = token_data["access_token"]
             self._token_expiry = time.time() + token_data.get("expires_in", 3600)
             return self._cached_token
 
     async def _auth_headers(self) -> dict[str, str]:
-        """Return appropriate auth headers — OAuth Bearer or Basic Auth fallback."""
-        try:
-            token = await self._get_oauth_token()
-            if token:
-                return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
-        except Exception:
-            pass
-        # Fallback: basic auth
-        import base64
-        creds = base64.b64encode(
-            f"{settings.snow_username}:{settings.snow_password}".encode()
-        ).decode()
-        return {"Authorization": f"Basic {creds}", "Accept": "application/json"}
+        token = await self._get_token()
+        return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
 
     async def get_incident(self, number: str) -> dict[str, Any]:
-        """Fetch a single incident by number (e.g. INC0012345).
-
-        Returns the raw incident record dict from SNOW.
-        Raises httpx.HTTPStatusError on 4xx/5xx.
-        """
+        """Fetch a single incident by number (e.g. INC0012345)."""
         url = f"{self._base}/api/now/table/incident"
         params = {
             "sysparm_query": f"number={number.upper()}",

@@ -72,17 +72,9 @@ async def get_incident(number: str, minutes: int = 43200) -> dict[str, Any]:
 
 @router.get("/status", dependencies=[Depends(require_user)])
 async def snow_status() -> dict[str, Any]:
-    """Returns whether ServiceNow is configured and which auth mode is active."""
-    import os
-    has_oauth = bool(
-        settings.azure_ad_tenant_id
-        and os.environ.get("ARM_CLIENT_ID")
-        and os.environ.get("ARM_CLIENT_SECRET")
-        and settings.snow_username
-        and settings.snow_password
-    )
+    """Returns whether ServiceNow is configured."""
     return {
         "configured": snow_client.configured,
-        "auth_mode": "oauth_ropc" if has_oauth else ("basic" if snow_client.configured else "none"),
+        "auth_mode": "client_credentials" if snow_client.configured else "none",
         "instance_url": snow_client._base if snow_client.configured else None,
     }
