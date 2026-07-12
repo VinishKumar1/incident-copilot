@@ -7,7 +7,7 @@ from typing import Optional, Tuple
 # Common field names across logback/logstash/zap/bunyan/etc.
 _MSG_KEYS = ("message", "msg", "log", "@message", "event", "text")
 _LEVEL_KEYS = ("level", "severity", "lvl", "log_level", "loglevel", "@level")
-_TRACE_KEYS = ("stack_trace", "stackTrace", "exception", "throwable", "error", "err")
+_STACK_KEYS = ("stack_trace", "stackTrace", "exception", "throwable", "error", "err")
 
 ERROR_LEVELS = {"error", "fatal", "severe", "critical", "err", "crit", "emerg", "alert"}
 
@@ -31,7 +31,7 @@ def parse_line(raw: str) -> Tuple[str, Optional[str]]:
     msg = next((str(obj[k]) for k in _MSG_KEYS if obj.get(k)), None) or s
 
     # Append the first line of any stack trace / exception for context.
-    for tk in _TRACE_KEYS:
+    for tk in _STACK_KEYS:
         val = obj.get(tk)
         if isinstance(val, str) and val.strip():
             first = val.strip().splitlines()[0]
@@ -43,7 +43,7 @@ def parse_line(raw: str) -> Tuple[str, Optional[str]]:
     return msg, level
 
 
-_TRACE_KEYS = ("traceId", "trace_id", "traceID", "traceid", "dd.trace_id", "X-B3-TraceId", "x-b3-traceid")
+_TRACE_FIELD_KEYS = ("traceId", "trace_id", "traceID", "traceid", "dd.trace_id", "X-B3-TraceId", "x-b3-traceid")
 _TRACE_RE = re.compile(r"trace[_-]?id[=:\s\"\]]+([0-9a-fA-F]{8,})", re.I)
 
 
@@ -56,7 +56,7 @@ def extract_trace(raw: str) -> str:
         except Exception:
             obj = None
         if isinstance(obj, dict):
-            for k in _TRACE_KEYS:
+            for k in _TRACE_FIELD_KEYS:
                 if obj.get(k):
                     return str(obj[k])
             mdc = obj.get("mdc")

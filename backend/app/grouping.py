@@ -9,7 +9,7 @@ from .models import Issue, LogEntry
 
 # Patterns that vary between otherwise-identical errors. Stripped before
 # fingerprinting so "timeout after 1241ms" and "timeout after 87ms" group together.
-_NUM = re.compile(r"\b\d+\b")
+_NUM = re.compile(r"\d+")
 _HEX = re.compile(r"\b0x[0-9a-fA-F]+\b")
 _UUID = re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b")
 _TS = re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?")
