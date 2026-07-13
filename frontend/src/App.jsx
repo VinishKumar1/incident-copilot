@@ -1474,7 +1474,15 @@ function AppShell({ ssoEnabled }) {
     refresh()
     const t = setInterval(refresh, REFRESH_MS)
     const tick = setInterval(() => setNow((n) => n + 1), 1000)
-    listNamespaces().then(setNamespaces).catch((e) => console.error('listNamespaces failed:', e))
+    listNamespaces().then((nsList) => {
+      setNamespaces(nsList)
+      // Restore previously selected namespace if still available
+      const saved = localStorage.getItem('tfr_namespace')
+      if (saved && nsList.includes(saved)) {
+        setNamespace(saved).catch(() => {})
+        setStatus((s) => (s ? { ...s, namespace: saved } : s))
+      }
+    }).catch((e) => console.error('listNamespaces failed:', e))
     return () => { clearInterval(t); clearInterval(tick) }
   }, [])
 
@@ -1493,6 +1501,7 @@ function AppShell({ ssoEnabled }) {
     setServiceFilter('all')
     try {
       await setNamespace(ns)
+      localStorage.setItem('tfr_namespace', ns)
       setStatus((s) => (s ? { ...s, namespace: ns } : s))
       const d = await listIssues()
       setIssues(d)
