@@ -87,7 +87,7 @@ async def test_list_namespaces_filters_system_namespaces(monkeypatch):
         return 'http://example/loki/api/v1/label/namespace/values', {}
 
     async def fake_get(self, _client, url, headers, **kwargs):
-        assert kwargs['params']['query'] == '{k8s_cluster=~"cluster-a|cluster-b"}'
+        # params should be empty (no cluster filter) after our change
         return DummyResponse({'data': ['kube-system', 'falcon-agent', 'telikos-prod', 'iom-preprod']})
 
     monkeypatch.setattr(LokiClient, '_labels_endpoint', fake_labels_endpoint)

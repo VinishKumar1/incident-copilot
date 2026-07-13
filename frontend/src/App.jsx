@@ -811,6 +811,7 @@ function SearchView() {
           <option value={720}>last 12h</option>
           <option value={1440}>last 1 day</option>
           <option value={2880}>last 2 days</option>
+          <option value={10080}>last 7 days</option>
         </select>
         <Btn variant="filled" appearance="primary" disabled={loading} type="submit">Search</Btn>
       </form>

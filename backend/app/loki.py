@@ -171,7 +171,7 @@ class LokiClient:
             resp = await self._get(
                 client, ns_url,
                 headers=headers,
-                params={"query": f'{{k8s_cluster=~"{cluster_pattern}"}}'},
+                params={},  # no cluster filter — return all namespaces across all clusters
             )
             data = resp.json()
 
@@ -259,7 +259,7 @@ class LokiClient:
         async with httpx.AsyncClient(timeout=settings.loki_timeout_seconds) as client:
             for ns_batch, chunk_start, chunk_end in chunks:
                 ns_pattern = "|".join(ns_batch)
-                query = f'{{namespace=~"{ns_pattern}", {_cluster_selector()}}} |= "{key}"'
+                query = f'{{namespace=~"{ns_pattern}"}} |= "{key}"'
                 params = {
                     "query": query,
                     "start": str(int(chunk_start * 1e9)),
@@ -415,7 +415,7 @@ class LokiClient:
         async with httpx.AsyncClient(timeout=settings.loki_timeout_seconds) as client:
             for trace_id in trace_ids[:10]:  # cap at 10 trace IDs to avoid excessive queries
                 # Search for this trace ID across the given namespaces
-                query = f'{{namespace=~"{ns_pattern}", {_cluster_selector()}}} |= "{trace_id}"'
+                query = f'{{namespace=~"{ns_pattern}"}} |= "{trace_id}"'
                 params = {
                     "query": query,
                     "start": str(int(start_ts * 1e9)),
