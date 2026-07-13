@@ -1532,7 +1532,7 @@ function AppShell({ ssoEnabled }) {
   return (
     <AdminGate ssoEnabled={ssoEnabled}>
       {(isAdmin) => {
-        const visibleTabs = isAdmin ? TABS : TABS.filter((t) => t.value !== 'dashboard')
+        const visibleTabs = isAdmin ? TABS : TABS.filter((t) => t.value !== 'dashboard' && t.value !== 'incident')
         return (
     <div className="mds-app">
       <Header status={status} namespaces={namespaces} onChangeNs={onChangeNs} switching={switching} ssoEnabled={ssoEnabled} />
@@ -1564,7 +1564,7 @@ function AppShell({ ssoEnabled }) {
             <SearchView />
           </div>
         )}
-        {tab === 'incident' && (
+        {tab === 'incident' && isAdmin && (
           <div className="mds-main mds-main--single">
             <IncidentView />
           </div>

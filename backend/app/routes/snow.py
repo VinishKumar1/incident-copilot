@@ -6,14 +6,14 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from ..auth import require_user
+from ..auth import require_user, require_admin
 from ..snow import snow_client
 from ..source import search_key
 
 router = APIRouter(prefix="/api/snow", tags=["snow"])
 
 
-@router.get("/incident/{number}", dependencies=[Depends(require_user)])
+@router.get("/incident/{number}", dependencies=[Depends(require_admin)])
 async def get_incident(number: str, minutes: int = 43200) -> dict[str, Any]:
     """Fetch a ServiceNow incident, extract business identifiers, and search Loki for each.
 
@@ -70,7 +70,7 @@ async def get_incident(number: str, minutes: int = 43200) -> dict[str, Any]:
     }
 
 
-@router.get("/status", dependencies=[Depends(require_user)])
+@router.get("/status", dependencies=[Depends(require_admin)])
 async def snow_status() -> dict[str, Any]:
     """Returns whether ServiceNow is configured."""
     return {
