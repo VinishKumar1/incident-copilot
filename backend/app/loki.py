@@ -351,15 +351,13 @@ class LokiClient:
             log.info("search_key: no log lines found — treating key as trace ID for phase-2")
             trace_ids_to_follow = [key.strip()]
 
-        # Services that matched the key — we'll also fetch their errors directly,
-        # in case their error logs don't carry the trace ID as a field.
+        # Services that matched the key — passed to _search_trace_ids for future use
         services_with_hits = {(g["namespace"], g["service"]) for g in services}
 
         trace_issues: List[dict] = []
         if trace_ids_to_follow:
             trace_issues = await self._search_trace_ids(
-                trace_ids_to_follow, namespaces, start_ts, end_ts,
-                services_with_hits=services_with_hits,
+                trace_ids_to_follow, namespaces, start_ts, end_ts
             )
 
         return {
@@ -380,7 +378,6 @@ class LokiClient:
         namespaces: List[str],
         start_ts: float,
         end_ts: float,
-        services_with_hits: set = None,
     ) -> List[dict]:
         """Phase 2: for each trace ID found in phase 1, search across ALL
         namespaces for error-level log lines that carry the same trace ID.
@@ -391,7 +388,6 @@ class LokiClient:
         if not trace_ids:
             return []
 
-        services_with_hits = services_with_hits or set()
         _ERROR_LEVELS = {"error", "warn", "warning", "fatal", "panic", "severe", "critical", "err", "crit"}
         _SAFE_LEVELS  = {"info", "debug", "trace"}
         _PROBLEM_RE   = re.compile(r"(?i)\b(error|exception|fatal|panic|traceback|warn)\b")
@@ -418,10 +414,17 @@ class LokiClient:
             return trace_id, None
 
         async with httpx.AsyncClient(timeout=settings.loki_timeout_seconds) as client:
+            # Limit concurrency to avoid 429 from Grafana rate limiter.
+            semaphore = asyncio.Semaphore(5)
+
+            async def _bounded_query(tid, ns):
+                async with semaphore:
+                    return await _query_trace_ns(client, tid, ns)
+
             tasks = [
-                _query_trace_ns(client, tid, ns)
-                for tid in trace_ids[:10]
-                for ns in namespaces
+                _bounded_query(tid, ns)
+                for tid in trace_ids[:5]   # cap trace IDs
+                for ns in namespaces[:20]  # cap namespaces
             ]
             results = await asyncio.gather(*tasks)
 
@@ -479,74 +482,6 @@ class LokiClient:
                         "message":   line[:500],
                         "trace_id":  trace_id,
                     })
-
-        # Phase 2b: for each (ns, svc) that had a key match in phase 1, also run
-        # an error-only query. This catches services whose error logs don't embed
-        # the trace ID as a field (common in Java/Spring where the MDC context
-        # may not be propagated into every log statement).
-        async def _query_svc_errors(client, ns: str, svc: str):
-            query = (
-                f'{{namespace="{ns}", app=~".*{re.escape(svc)}.*", {_cluster_selector()}, {_APP_EXCLUSION}}} '
-                r'|~ "(?i)\b(error|exception|fatal|panic)\b"'
-                r' | level!~"(?i)^(debug|info|information|trace|verbose)$"'
-            )
-            params = {
-                "query": query,
-                "start": str(int(start_ts * 1e9)),
-                "end":   str(int(end_ts   * 1e9)),
-                "limit": "200",
-                "direction": "backward",
-            }
-            try:
-                resp = await self._get(client, url, headers=headers, params=params)
-                if resp.status_code < 400:
-                    return ns, svc, resp.json()
-                log.warning("_search_trace_ids svc-errors: ns=%s svc=%s status=%s", ns, svc, resp.status_code)
-            except Exception as exc:
-                log.warning("_search_trace_ids svc-errors: ns=%s svc=%s error: %s", ns, svc, exc)
-            return ns, svc, None
-
-        if services_with_hits:
-            async with httpx.AsyncClient(timeout=settings.loki_timeout_seconds) as client:
-                svc_tasks = [_query_svc_errors(client, ns, svc) for ns, svc in services_with_hits]
-                svc_results = await asyncio.gather(*svc_tasks)
-
-            for ns, svc, data in svc_results:
-                if not data:
-                    continue
-                for stream in data.get("data", {}).get("result", []):
-                    lbl = stream.get("stream", {})
-                    actual_svc = lbl.get("app") or lbl.get("container") or lbl.get("pod", svc).rsplit("-", 2)[0]
-                    grp_key = (ns, actual_svc)
-                    for ts_ns, line in stream.get("values", []):
-                        level = (lbl.get("level") or lbl.get("detected_level") or "").lower()
-                        if not level:
-                            m = re.search(r"(?i)\b(ERROR|WARN|INFO|DEBUG|FATAL)\b", line)
-                            level = m.group(1).lower() if m else "error"
-                        is_problem = level in _ERROR_LEVELS or bool(_PROBLEM_RE.search(line))
-                        if not is_problem:
-                            continue
-                        if grp_key not in groups:
-                            groups[grp_key] = {
-                                "namespace": ns,
-                                "service":   actual_svc,
-                                "total":     0,
-                                "problem_count": 0,
-                                "problems":  [],
-                                "trace_ids": [],
-                            }
-                        grp = groups[grp_key]
-                        grp["total"] += 1
-                        grp["problem_count"] += 1
-                        grp["problems"].append({
-                            "ts":        str(int(ts_ns) // int(1e6)),
-                            "namespace": ns,
-                            "service":   actual_svc,
-                            "pod":       lbl.get("pod", ""),
-                            "level":     level or "error",
-                            "message":   line[:500],
-                            "trace_id":  "",
-                        })
 
         return sorted(groups.values(), key=lambda g: g["problem_count"], reverse=True)
 
