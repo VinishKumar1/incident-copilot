@@ -22,6 +22,10 @@ def _cluster_selector() -> str:
     pattern = "|".join(clusters)
     return f'k8s_cluster=~"{pattern}"'
 
+# Apps to exclude from all live-issues and search queries (self-monitoring noise).
+_EXCLUDED_APPS = r"tfr-backend|tfr-frontend"
+_APP_EXCLUSION = f'app!~"{_EXCLUDED_APPS}"'
+
 
 def _error_query(namespace: str) -> str:
     """Build a Loki LogQL query for the given namespace.
@@ -29,7 +33,7 @@ def _error_query(namespace: str) -> str:
     and satisfies Maersk Loki's 2-label minimum.
     Excludes lines whose level label OR JSON body level field is debug/info/trace."""
     return (
-        f'{{namespace="{namespace}", {_cluster_selector()}}} '
+        f'{{namespace="{namespace}", {_cluster_selector()}, {_APP_EXCLUSION}}} '
         r'|~ "(?i)\\b(error|exception|fatal|panic|traceback)\\b"'
         r' | level!~"(?i)^(debug|info|information|trace|verbose)$"'
         r' != "\"level\":\"DEBUG\""'
@@ -241,7 +245,7 @@ class LokiClient:
         url, headers = self._endpoint()
 
         async def _query_ns(client, ns: str, t_start: float, t_end: float):
-            query = f'{{namespace="{ns}", {_cluster_selector()}}} |= "{key}"'
+            query = f'{{namespace="{ns}", {_cluster_selector()}, {_APP_EXCLUSION}}} |= "{key}"'
             params = {
                 "query": query,
                 "start": str(int(t_start * 1e9)),
@@ -388,7 +392,7 @@ class LokiClient:
         async with httpx.AsyncClient(timeout=settings.loki_timeout_seconds) as client:
             for trace_id in trace_ids[:10]:  # cap at 10 trace IDs to avoid excessive queries
                 # Search for this trace ID across the given namespaces
-                query = f'{{namespace=~"{ns_pattern}", {_cluster_selector()}}} |= "{trace_id}"'
+                query = f'{{namespace=~"{ns_pattern}", {_cluster_selector()}, {_APP_EXCLUSION}}} |= "{trace_id}"'
                 params = {
                     "query": query,
                     "start": str(int(start_ts * 1e9)),
