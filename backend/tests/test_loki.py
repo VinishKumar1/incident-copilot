@@ -53,7 +53,6 @@ async def test_search_key_queries_each_namespace_individually(monkeypatch):
     """search_key should query each namespace with exact match, not a regex batch."""
     client = LokiClient()
     namespaces = ['iom-preprod', 'iom-prod']
->>>>>>> origin/main
     calls = []
 
     def fake_endpoint(self):
@@ -73,7 +72,6 @@ async def test_search_key_queries_each_namespace_individually(monkeypatch):
     assert len(calls) == 2
     assert any('namespace="iom-preprod"' in c for c in calls)
     assert any('namespace="iom-prod"' in c for c in calls)
->>>>>>> origin/main
 
 
 @pytest.mark.asyncio

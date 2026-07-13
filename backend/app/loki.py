@@ -214,27 +214,10 @@ class LokiClient:
         return entries
 
     async def search_key(self, key: str, namespaces: List[str], minutes: int) -> dict:
-<<<<<<< HEAD
-        """Search for key across IOM namespaces.
+        """Search for key across namespaces using per-namespace exact-match queries in parallel.
 
-        Queries each namespace individually with exact match (namespace="ns") to avoid
-        Grafana Loki proxy 400s caused by long pipe-separated regex patterns.
-        All namespaces are queried in parallel per time chunk.
-=======
-<<<<<<< HEAD
-        """Search for key across IOM namespaces.
-
-        Queries each namespace individually with exact match (namespace="ns") to avoid
-        Grafana Loki proxy 400s caused by long pipe-separated regex patterns.
-        All namespaces are queried in parallel per time chunk.
-=======
-        """Search all log levels for a key string across IOM namespaces.
-
-        Uses namespace=~"iom-.+" with the configured cluster selector so Grafana's
-        Loki proxy gets the required k8s_cluster label. Falls back to explicit
-        namespace batching if the regex query fails.
->>>>>>> origin/main
->>>>>>> origin/main
+        Grafana Loki proxy returns 400 for long pipe-separated regex namespace patterns.
+        This queries each namespace individually with exact match and runs them in parallel.
         """
         log.info("search_key: key=%r minutes=%d across %d namespaces", key, minutes, len(namespaces))
 
@@ -248,13 +231,6 @@ class LokiClient:
             time_chunks.append((chunk_start, t))
             t = chunk_start
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-=======
-        # Matches keyword-in-text for logs with no structured level (plain-text fallback).
->>>>>>> origin/main
->>>>>>> origin/main
         _PROBLEM_RE = re.compile(r"(?i)\b(error|exception|fatal|panic|traceback|warn)\b")
         _EXCEPTION_CLASS_RE = re.compile(r"(?i)(Exception|Error)\b")
         _ERROR_LEVELS = {"error", "warn", "warning", "fatal", "panic", "severe", "critical", "err", "crit"}
@@ -262,30 +238,14 @@ class LokiClient:
         groups: Dict[tuple, dict] = {}
         all_trace_ids: List[str] = []
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-=======
-        # Primary query: namespace=~"iom-.+" covers all IOM environments (preprod/prod/staging)
-        # Grafana's Loki proxy requires k8s_cluster label — use _cluster_selector().
-        # Fallback: batch explicit namespaces (filtered to iom-* only) if primary fails.
-        IOM_NS_PATTERN = "iom-.+"
-        NS_BATCH_SIZE = 5  # smaller batches to stay under URL length limits
-        iom_namespaces = [ns for ns in namespaces if ns.startswith("iom-")]
-        if not iom_namespaces:
-            iom_namespaces = namespaces  # fallback if no iom- namespaces found
-
->>>>>>> origin/main
->>>>>>> origin/main
         url, headers = self._endpoint()
 
-        async def _query_ns(client, ns: str, chunk_start: float, chunk_end: float):
-            """Query a single namespace for the key."""
+        async def _query_ns(client, ns: str, t_start: float, t_end: float):
             query = f'{{namespace="{ns}", {_cluster_selector()}}} |= "{key}"'
             params = {
                 "query": query,
-                "start": str(int(chunk_start * 1e9)),
-                "end":   str(int(chunk_end * 1e9)),
+                "start": str(int(t_start * 1e9)),
+                "end":   str(int(t_end * 1e9)),
                 "limit": "500",
                 "direction": "backward",
             }
@@ -300,69 +260,12 @@ class LokiClient:
 
         async with httpx.AsyncClient(timeout=settings.loki_timeout_seconds) as client:
             for chunk_start, chunk_end in time_chunks:
-<<<<<<< HEAD
-                # Run all namespace queries in parallel
                 tasks = [_query_ns(client, ns, chunk_start, chunk_end) for ns in namespaces]
                 results = await asyncio.gather(*tasks)
 
                 for data in results:
                     if not data:
                         continue
-=======
-<<<<<<< HEAD
-                # Run all namespace queries in parallel
-                tasks = [_query_ns(client, ns, chunk_start, chunk_end) for ns in namespaces]
-                results = await asyncio.gather(*tasks)
-
-                for data in results:
-                    if not data:
-                        continue
-=======
-                base_params = {
-                    "start": str(int(chunk_start * 1e9)),
-                    "end": str(int(chunk_end * 1e9)),
-                    "limit": "2000",
-                    "direction": "backward",
-                }
-
-                # Try primary: broad iom-.+ namespace regex with cluster selector
-                primary_query = f'{{namespace=~"{IOM_NS_PATTERN}", {_cluster_selector()}}} |= "{key}"'
-                try:
-                    resp = await self._get(client, url, headers=headers,
-                                           params={**base_params, "query": primary_query})
-                    if resp.status_code < 400:
-                        log.info("search_key: primary query returned %d streams",
-                                 len(resp.json().get("data", {}).get("result", [])))
-                        batches_data = [resp.json()]
-                    else:
-                        log.warning("search_key: primary query %s, falling back to batches: %s",
-                                    resp.status_code, resp.text[:200])
-                        batches_data = None
-                except Exception as exc:
-                    log.warning("search_key: primary query failed (%s), falling back to batches", exc)
-                    batches_data = None
-
-                # Fallback: explicit iom-* namespace batches
-                if batches_data is None:
-                    batches_data = []
-                    for i in range(0, len(iom_namespaces), NS_BATCH_SIZE):
-                        batch = iom_namespaces[i:i + NS_BATCH_SIZE]
-                        ns_pattern = "|".join(batch)
-                        fb_query = f'{{namespace=~"{ns_pattern}", {_cluster_selector()}}} |= "{key}"'
-                        try:
-                            resp = await self._get(client, url, headers=headers,
-                                                   params={**base_params, "query": fb_query})
-                            if resp.status_code < 400:
-                                batches_data.append(resp.json())
-                            else:
-                                log.warning("search_key: fallback batch %s failed: %s",
-                                            batch, resp.text[:100])
-                        except Exception as exc2:
-                            log.warning("search_key: fallback batch exception: %s", exc2)
-
-                for data in batches_data:
->>>>>>> origin/main
->>>>>>> origin/main
                     for stream in data.get("data", {}).get("result", []):
                         lbl = stream.get("stream", {})
                         ns = lbl.get("namespace", namespaces[0] if namespaces else "")
@@ -385,7 +288,6 @@ class LokiClient:
 
                         for ts_ns, line in stream.get("values", []):
                             grp["total"] += 1
-                            # Prefer the Loki stream label; fall back to scanning the line text.
                             level = (lbl.get("level") or lbl.get("detected_level") or "").lower()
                             if not level:
                                 m = re.search(r"(?i)\b(ERROR|WARN|INFO|DEBUG|FATAL)\b", line)
@@ -393,16 +295,11 @@ class LokiClient:
 
                             trace_id = ""
                             for pattern in (
-                                # JSON: "traceId": "abc123"
                                 r'"[Tt]race[_-]?[Ii]d"\s*:\s*"([^"]{8,})"',
-                                # logfmt: traceId=abc123 or trace_id=abc123
                                 r'[Tt]race[_-]?[Ii]d=([0-9a-fA-F\-]{8,})',
-                                # W3C traceparent: 00-<traceId(32 hex)>-<spanId(16 hex)>-xx
                                 r'traceparent[=: ]+\d{2}-([0-9a-fA-F]{32})-',
-                                # plain 32-hex UUID-style or 16-hex trace id after "trace" keyword
                                 r'(?i)trace["\s:=]+([0-9a-fA-F]{32})',
                                 r'(?i)trace["\s:=]+([0-9a-fA-F]{16})',
-                                # Grafana/OpenTelemetry: X-B3-TraceId or similar
                                 r'[Xx]-[Bb]3-[Tt]race[Ii]d[=: ]+([0-9a-fA-F]{16,32})',
                             ):
                                 tm = re.search(pattern, line)
@@ -415,9 +312,6 @@ class LokiClient:
                             if trace_id and trace_id not in all_trace_ids:
                                 all_trace_ids.append(trace_id)
 
-                            # A line is a problem if:
-                            # 1. Its level label is a known error/warn level, OR
-                            # 2. Level is unknown and the raw line contains problem keywords
                             is_problem = level in _ERROR_LEVELS or (
                                 level not in _SAFE_LEVELS and bool(_PROBLEM_RE.search(line))
                             )
@@ -437,18 +331,13 @@ class LokiClient:
         total_matches = sum(g["total"] for g in services)
         total_problems = sum(g["problem_count"] for g in services)
 
-        # ── Phase 2: follow trace IDs into other services ──────────────────────
-        log.info("search_key: key=%r found %d log lines, extracted %d trace IDs: %s",
-                 key, total_matches, len(all_trace_ids), all_trace_ids[:5])
+        log.info("search_key: key=%r found %d log lines, extracted %d trace IDs",
+                 key, total_matches, len(all_trace_ids))
 
-        # If Phase 1 found nothing at all, the key itself might be a trace ID
-        # (e.g. user pastes a trace ID directly), OR the booking number doesn't
-        # appear verbatim in log text but its trace ID is known.  Try the key as
-        # a trace ID so the user gets results either way.
         trace_ids_to_follow = list(all_trace_ids)
         _TRACE_RE = re.compile(r'^[0-9a-fA-F]{16,32}$')
         if total_matches == 0 and _TRACE_RE.match(key.strip()):
-            log.info("search_key: no log lines found for key=%r — treating as trace ID for phase-2", key)
+            log.info("search_key: no log lines found — treating key as trace ID for phase-2")
             trace_ids_to_follow = [key.strip()]
 
         trace_issues: List[dict] = []
@@ -456,7 +345,6 @@ class LokiClient:
             trace_issues = await self._search_trace_ids(
                 trace_ids_to_follow, namespaces, start_ts, end_ts
             )
-            log.info("search_key: phase-2 trace search found %d service groups with errors", len(trace_issues))
 
         return {
             "key": key,
