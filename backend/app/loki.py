@@ -221,11 +221,19 @@ class LokiClient:
         Grafana Loki proxy 400s caused by long pipe-separated regex patterns.
         All namespaces are queried in parallel per time chunk.
 =======
+<<<<<<< HEAD
+        """Search for key across IOM namespaces.
+
+        Queries each namespace individually with exact match (namespace="ns") to avoid
+        Grafana Loki proxy 400s caused by long pipe-separated regex patterns.
+        All namespaces are queried in parallel per time chunk.
+=======
         """Search all log levels for a key string across IOM namespaces.
 
         Uses namespace=~"iom-.+" with the configured cluster selector so Grafana's
         Loki proxy gets the required k8s_cluster label. Falls back to explicit
         namespace batching if the regex query fails.
+>>>>>>> origin/main
 >>>>>>> origin/main
         """
         log.info("search_key: key=%r minutes=%d across %d namespaces", key, minutes, len(namespaces))
@@ -242,7 +250,10 @@ class LokiClient:
 
 <<<<<<< HEAD
 =======
+<<<<<<< HEAD
+=======
         # Matches keyword-in-text for logs with no structured level (plain-text fallback).
+>>>>>>> origin/main
 >>>>>>> origin/main
         _PROBLEM_RE = re.compile(r"(?i)\b(error|exception|fatal|panic|traceback|warn)\b")
         _EXCEPTION_CLASS_RE = re.compile(r"(?i)(Exception|Error)\b")
@@ -251,6 +262,8 @@ class LokiClient:
         groups: Dict[tuple, dict] = {}
         all_trace_ids: List[str] = []
 
+<<<<<<< HEAD
+=======
 <<<<<<< HEAD
 =======
         # Primary query: namespace=~"iom-.+" covers all IOM environments (preprod/prod/staging)
@@ -262,6 +275,7 @@ class LokiClient:
         if not iom_namespaces:
             iom_namespaces = namespaces  # fallback if no iom- namespaces found
 
+>>>>>>> origin/main
 >>>>>>> origin/main
         url, headers = self._endpoint()
 
@@ -286,6 +300,15 @@ class LokiClient:
 
         async with httpx.AsyncClient(timeout=settings.loki_timeout_seconds) as client:
             for chunk_start, chunk_end in time_chunks:
+<<<<<<< HEAD
+                # Run all namespace queries in parallel
+                tasks = [_query_ns(client, ns, chunk_start, chunk_end) for ns in namespaces]
+                results = await asyncio.gather(*tasks)
+
+                for data in results:
+                    if not data:
+                        continue
+=======
 <<<<<<< HEAD
                 # Run all namespace queries in parallel
                 tasks = [_query_ns(client, ns, chunk_start, chunk_end) for ns in namespaces]
@@ -338,6 +361,7 @@ class LokiClient:
                             log.warning("search_key: fallback batch exception: %s", exc2)
 
                 for data in batches_data:
+>>>>>>> origin/main
 >>>>>>> origin/main
                     for stream in data.get("data", {}).get("result", []):
                         lbl = stream.get("stream", {})
