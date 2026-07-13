@@ -851,7 +851,7 @@ function SearchView() {
             <div className="mds-search-stats">
               <strong>"{res.key}"</strong> — {res.problem_count} problem(s) across {withProblems.length} service(s);
               {' '}{res.total_matches} total log match(es) in the last {res.minutes}m.
-              <div className="mds-hint">searched: {(res.namespaces?.length ? res.namespaces : [res.namespace]).join(', ') || '—'}</div>
+              <div className="mds-hint">{res.total_matches} log line(s) matched across {res.namespaces?.length || 1} namespace(s)</div>
               {res.note && <div className="mds-hint">{res.note}</div>}
             </div>
 

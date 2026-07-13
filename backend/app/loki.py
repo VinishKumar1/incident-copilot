@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -213,15 +214,22 @@ class LokiClient:
         return entries
 
     async def search_key(self, key: str, namespaces: List[str], minutes: int) -> dict:
+<<<<<<< HEAD
+        """Search for key across IOM namespaces.
+
+        Queries each namespace individually with exact match (namespace="ns") to avoid
+        Grafana Loki proxy 400s caused by long pipe-separated regex patterns.
+        All namespaces are queried in parallel per time chunk.
+=======
         """Search all log levels for a key string across IOM namespaces.
 
         Uses namespace=~"iom-.+" with the configured cluster selector so Grafana's
         Loki proxy gets the required k8s_cluster label. Falls back to explicit
         namespace batching if the regex query fails.
+>>>>>>> origin/main
         """
-        log.info("search_key: searching key=%r, minutes=%d", key, minutes)
+        log.info("search_key: key=%r minutes=%d across %d namespaces", key, minutes, len(namespaces))
 
-        # Chunk into 6-hour slices to avoid Loki's per-query byte limit.
         CHUNK_MINUTES = 360
         end_ts = time.time()
         start_ts = end_ts - minutes * 60
@@ -232,7 +240,10 @@ class LokiClient:
             time_chunks.append((chunk_start, t))
             t = chunk_start
 
+<<<<<<< HEAD
+=======
         # Matches keyword-in-text for logs with no structured level (plain-text fallback).
+>>>>>>> origin/main
         _PROBLEM_RE = re.compile(r"(?i)\b(error|exception|fatal|panic|traceback|warn)\b")
         _EXCEPTION_CLASS_RE = re.compile(r"(?i)(Exception|Error)\b")
         _ERROR_LEVELS = {"error", "warn", "warning", "fatal", "panic", "severe", "critical", "err", "crit"}
@@ -240,6 +251,8 @@ class LokiClient:
         groups: Dict[tuple, dict] = {}
         all_trace_ids: List[str] = []
 
+<<<<<<< HEAD
+=======
         # Primary query: namespace=~"iom-.+" covers all IOM environments (preprod/prod/staging)
         # Grafana's Loki proxy requires k8s_cluster label — use _cluster_selector().
         # Fallback: batch explicit namespaces (filtered to iom-* only) if primary fails.
@@ -249,9 +262,39 @@ class LokiClient:
         if not iom_namespaces:
             iom_namespaces = namespaces  # fallback if no iom- namespaces found
 
+>>>>>>> origin/main
         url, headers = self._endpoint()
+
+        async def _query_ns(client, ns: str, chunk_start: float, chunk_end: float):
+            """Query a single namespace for the key."""
+            query = f'{{namespace="{ns}", {_cluster_selector()}}} |= "{key}"'
+            params = {
+                "query": query,
+                "start": str(int(chunk_start * 1e9)),
+                "end":   str(int(chunk_end * 1e9)),
+                "limit": "500",
+                "direction": "backward",
+            }
+            try:
+                resp = await self._get(client, url, headers=headers, params=params)
+                if resp.status_code < 400:
+                    return resp.json()
+                log.warning("search_key: ns=%s status=%s: %s", ns, resp.status_code, resp.text[:100])
+            except Exception as exc:
+                log.warning("search_key: ns=%s error: %s", ns, exc)
+            return None
+
         async with httpx.AsyncClient(timeout=settings.loki_timeout_seconds) as client:
             for chunk_start, chunk_end in time_chunks:
+<<<<<<< HEAD
+                # Run all namespace queries in parallel
+                tasks = [_query_ns(client, ns, chunk_start, chunk_end) for ns in namespaces]
+                results = await asyncio.gather(*tasks)
+
+                for data in results:
+                    if not data:
+                        continue
+=======
                 base_params = {
                     "start": str(int(chunk_start * 1e9)),
                     "end": str(int(chunk_end * 1e9)),
@@ -295,6 +338,7 @@ class LokiClient:
                             log.warning("search_key: fallback batch exception: %s", exc2)
 
                 for data in batches_data:
+>>>>>>> origin/main
                     for stream in data.get("data", {}).get("result", []):
                         lbl = stream.get("stream", {})
                         ns = lbl.get("namespace", namespaces[0] if namespaces else "")

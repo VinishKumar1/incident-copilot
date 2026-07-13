@@ -49,10 +49,17 @@ def test_error_query_contains_namespace_selector_and_level_filters():
 
 
 @pytest.mark.asyncio
+<<<<<<< HEAD
+async def test_search_key_queries_each_namespace_individually(monkeypatch):
+    """search_key should query each namespace with exact match, not a regex batch."""
+    client = LokiClient()
+    namespaces = ['iom-preprod', 'iom-prod']
+=======
 async def test_search_key_uses_iom_namespace_pattern(monkeypatch):
     """search_key should use namespace=~'iom-.+' with cluster selector."""
     client = LokiClient()
     namespaces = ['iom-preprod', 'iom-prod', 'other-ns']
+>>>>>>> origin/main
     calls = []
 
     def fake_endpoint(self):
@@ -68,8 +75,15 @@ async def test_search_key_uses_iom_namespace_pattern(monkeypatch):
     result = await client.search_key('booking-123', namespaces, minutes=30)
 
     assert result['total_matches'] == 0
+<<<<<<< HEAD
+    # Should have one call per namespace (exact match, not regex batch)
+    assert len(calls) == 2
+    assert any('namespace="iom-preprod"' in c for c in calls)
+    assert any('namespace="iom-prod"' in c for c in calls)
+=======
     # Primary query should use iom-.+ pattern
     assert any('iom-.+' in c for c in calls)
+>>>>>>> origin/main
 
 
 @pytest.mark.asyncio

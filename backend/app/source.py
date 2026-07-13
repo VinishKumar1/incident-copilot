@@ -104,19 +104,22 @@ async def search_key(key: str, minutes: int = 120) -> dict:
 
         return await k8s_client.search_logs(key, active_namespaces, minutes)
 
-    # loki / grafana — search ALL known namespaces so a booking/trace that
-    # lives in iom-prod is found even when the live feed shows iom-preprod.
+    # loki / grafana — search all IOM namespaces across clusters.
+    # We enumerate only iom-* namespaces from Loki to keep queries targeted.
+    # Each namespace is searched individually (exact match) to avoid Grafana proxy 400s
+    # that occur with long pipe-separated regex patterns.
     from .loki import loki_client
 
     try:
         all_namespaces = await loki_client.list_namespaces()
+        iom_namespaces = [ns for ns in all_namespaces if ns.startswith("iom-")]
     except Exception:
-        all_namespaces = []
+        iom_namespaces = []
 
-    # Merge: active namespace(s) first (preserves priority), then the rest.
+    # Always include the active namespace(s) first; add any iom-* extras
     seen: set = set()
     namespaces: List[str] = []
-    for ns in active_namespaces + all_namespaces:
+    for ns in active_namespaces + iom_namespaces:
         if ns and ns not in seen:
             seen.add(ns)
             namespaces.append(ns)
