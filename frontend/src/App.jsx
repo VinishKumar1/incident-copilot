@@ -855,14 +855,7 @@ function SearchView() {
               {res.note && <div className="mds-hint">{res.note}</div>}
             </div>
 
-            {res.trace_ids?.length > 0 && (
-              <div className="mds-trace-ids">
-                <span className="mds-muted">trace ids:</span>
-                {res.trace_ids.map((t) => (
-                  <Btn key={t} variant="outlined" appearance="neutral" fit="small" onClick={() => doSearch(t)}>{t}</Btn>
-                ))}
-              </div>
-            )}
+
 
             {res.services.length === 0 && (
               <p className="mds-empty">No log lines contain this key in the selected window.</p>

@@ -371,9 +371,8 @@ class LokiClient:
     ) -> List[dict]:
         """Phase 2: for each trace ID found in phase 1, search across ALL
         namespaces for error-level log lines that carry the same trace ID.
-        This surfaces failures in downstream services that were triggered by
-        the original key (e.g. a booking number calls offer-service which
-        calls pricing-service which fails — the error shows up here).
+        Queries each namespace individually (exact match) in parallel to avoid
+        Grafana Loki proxy 400s from regex namespace patterns.
         """
         if not trace_ids:
             return []
@@ -382,82 +381,86 @@ class LokiClient:
         _SAFE_LEVELS  = {"info", "debug", "trace"}
         _PROBLEM_RE   = re.compile(r"(?i)\b(error|exception|fatal|panic|traceback|warn)\b")
 
-        # Use the same namespaces as the original search — Maersk Loki requires
-        # a namespace label in every query. We search the same namespace set
-        # so we catch failures in different services within the same namespace.
-        ns_pattern = "|".join(namespaces)
         groups: Dict[tuple, dict] = {}
-
         url, headers = self._endpoint()
+
+        async def _query_trace_ns(client, trace_id: str, ns: str):
+            query = f'{{namespace="{ns}", {_cluster_selector()}, {_APP_EXCLUSION}}} |= "{trace_id}"'
+            params = {
+                "query": query,
+                "start": str(int(start_ts * 1e9)),
+                "end":   str(int(end_ts   * 1e9)),
+                "limit": "500",
+                "direction": "backward",
+            }
+            try:
+                resp = await self._get(client, url, headers=headers, params=params)
+                if resp.status_code < 400:
+                    return trace_id, resp.json()
+                log.warning("_search_trace_ids: ns=%s trace=%s status=%s", ns, trace_id, resp.status_code)
+            except Exception as exc:
+                log.warning("_search_trace_ids: ns=%s trace=%s error: %s", ns, trace_id, exc)
+            return trace_id, None
+
         async with httpx.AsyncClient(timeout=settings.loki_timeout_seconds) as client:
-            for trace_id in trace_ids[:10]:  # cap at 10 trace IDs to avoid excessive queries
-                # Search for this trace ID across the given namespaces
-                query = f'{{namespace=~"{ns_pattern}", {_cluster_selector()}, {_APP_EXCLUSION}}} |= "{trace_id}"'
-                params = {
-                    "query": query,
-                    "start": str(int(start_ts * 1e9)),
-                    "end":   str(int(end_ts   * 1e9)),
-                    "limit": "500",
-                    "direction": "backward",
-                }
-                log.debug("_search_trace_ids: querying trace_id=%r query=%r", trace_id, query)
-                try:
-                    resp = await self._get(client, url, headers=headers, params=params)
-                    data = resp.json()
-                except Exception as exc:
-                    log.warning("_search_trace_ids: query failed for trace_id=%r: %s", trace_id, exc)
-                    continue
+            tasks = [
+                _query_trace_ns(client, tid, ns)
+                for tid in trace_ids[:10]
+                for ns in namespaces
+            ]
+            results = await asyncio.gather(*tasks)
 
-                result_streams = data.get("data", {}).get("result", [])
-                log.debug("_search_trace_ids: trace_id=%r → %d streams", trace_id, len(result_streams))
+        for trace_id, data in results:
+            if not data:
+                continue
+            for stream in data.get("data", {}).get("result", []):
+                lbl  = stream.get("stream", {})
+                ns   = lbl.get("namespace", "")
+                svc  = (
+                    lbl.get("app")
+                    or lbl.get("container")
+                    or lbl.get("pod", "unknown").rsplit("-", 2)[0]
+                )
+                grp_key = (ns, svc)
 
-                for stream in result_streams:
-                    lbl  = stream.get("stream", {})
-                    ns   = lbl.get("namespace", "")
-                    svc  = (
-                        lbl.get("app")
-                        or lbl.get("container")
-                        or lbl.get("pod", "unknown").rsplit("-", 2)[0]
+                for ts_ns, line in stream.get("values", []):
+                    level = (lbl.get("level") or lbl.get("detected_level") or "").lower()
+                    if not level:
+                        m = re.search(r"(?i)\b(ERROR|WARN|INFO|DEBUG|FATAL)\b", line)
+                        level = m.group(1).lower() if m else ""
+
+                    is_problem = level in _ERROR_LEVELS or (
+                        level not in _SAFE_LEVELS and bool(_PROBLEM_RE.search(line))
                     )
-                    grp_key = (ns, svc)
+                    if not is_problem:
+                        continue
 
-                    for ts_ns, line in stream.get("values", []):
-                        level = (lbl.get("level") or lbl.get("detected_level") or "").lower()
-                        if not level:
-                            m = re.search(r"(?i)\b(ERROR|WARN|INFO|DEBUG|FATAL)\b", line)
-                            level = m.group(1).lower() if m else ""
-
-                        is_problem = level in _ERROR_LEVELS or (
-                            level not in _SAFE_LEVELS and bool(_PROBLEM_RE.search(line))
-                        )
-                        if not is_problem:
-                            continue
-
-                        if grp_key not in groups:
-                            groups[grp_key] = {
-                                "namespace": ns,
-                                "service":   svc,
-                                "total":     0,
-                                "problem_count": 0,
-                                "problems":  [],
-                                "trace_ids": [trace_id],
-                            }
-                        grp = groups[grp_key]
-                        if trace_id not in grp["trace_ids"]:
-                            grp["trace_ids"].append(trace_id)
-                        grp["total"] += 1
-                        grp["problem_count"] += 1
-                        grp["problems"].append({
-                            "ts":        str(int(ts_ns) // int(1e6)),
+                    if grp_key not in groups:
+                        groups[grp_key] = {
                             "namespace": ns,
                             "service":   svc,
-                            "pod":       lbl.get("pod", ""),
-                            "level":     level or "error",
-                            "message":   line[:500],
-                            "trace_id":  trace_id,
-                        })
+                            "total":     0,
+                            "problem_count": 0,
+                            "problems":  [],
+                            "trace_ids": [trace_id],
+                        }
+                    grp = groups[grp_key]
+                    if trace_id not in grp["trace_ids"]:
+                        grp["trace_ids"].append(trace_id)
+                    grp["total"] += 1
+                    grp["problem_count"] += 1
+                    grp["problems"].append({
+                        "ts":        str(int(ts_ns) // int(1e6)),
+                        "namespace": ns,
+                        "service":   svc,
+                        "pod":       lbl.get("pod", ""),
+                        "level":     level or "error",
+                        "message":   line[:500],
+                        "trace_id":  trace_id,
+                    })
 
         return sorted(groups.values(), key=lambda g: g["problem_count"], reverse=True)
+
 
 
     async def get_service_logs(
