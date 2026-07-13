@@ -298,18 +298,25 @@ class LokiClient:
                                 level = m.group(1).lower() if m else ""
 
                             trace_id = ""
-                            for pattern in (
-                                r'"[Tt]race[_-]?[Ii]d"\s*:\s*"([^"]{8,})"',
-                                r'[Tt]race[_-]?[Ii]d=([0-9a-fA-F\-]{8,})',
-                                r'traceparent[=: ]+\d{2}-([0-9a-fA-F]{32})-',
-                                r'(?i)trace["\s:=]+([0-9a-fA-F]{32})',
-                                r'(?i)trace["\s:=]+([0-9a-fA-F]{16})',
-                                r'[Xx]-[Bb]3-[Tt]race[Ii]d[=: ]+([0-9a-fA-F]{16,32})',
-                            ):
-                                tm = re.search(pattern, line)
-                                if tm:
-                                    trace_id = tm.group(1)
+                            # Check stream labels first (Loki may carry traceId as a label)
+                            for label_key in ("traceId", "trace_id", "traceID", "traceid", "trace"):
+                                if lbl.get(label_key):
+                                    trace_id = lbl[label_key]
                                     break
+                            # Fall back to scanning the log line text
+                            if not trace_id:
+                                for pattern in (
+                                    r'"[Tt]race[_\-]?[Ii][Dd]"\s*:\s*"([0-9a-fA-F\-]{16,})"',
+                                    r'[Tt]race[_\-]?[Ii][Dd]["\s:=,\]]+([0-9a-fA-F\-]{16,})',
+                                    r'traceparent[=: ]+\d{2}-([0-9a-fA-F]{32})-',
+                                    r'[Xx]-[Bb]3-[Tt]race[Ii][Dd][=: ]+([0-9a-fA-F]{16,32})',
+                                    # bare 32-hex trace ID anywhere in line
+                                    r'\b([0-9a-fA-F]{32})\b',
+                                ):
+                                    tm = re.search(pattern, line)
+                                    if tm:
+                                        trace_id = tm.group(1).replace("-", "")
+                                        break
 
                             if trace_id and trace_id not in grp["trace_ids"]:
                                 grp["trace_ids"].append(trace_id)
@@ -335,8 +342,8 @@ class LokiClient:
         total_matches = sum(g["total"] for g in services)
         total_problems = sum(g["problem_count"] for g in services)
 
-        log.info("search_key: key=%r found %d log lines, extracted %d trace IDs",
-                 key, total_matches, len(all_trace_ids))
+        log.info("search_key: key=%r found %d log lines, extracted %d trace IDs: %s",
+                 key, total_matches, len(all_trace_ids), all_trace_ids[:5])
 
         trace_ids_to_follow = list(all_trace_ids)
         _TRACE_RE = re.compile(r'^[0-9a-fA-F]{16,32}$')
