@@ -49,7 +49,8 @@ def test_error_query_contains_namespace_selector_and_level_filters():
 
 
 @pytest.mark.asyncio
-async def test_search_key_batches_namespaces_in_groups_of_ten(monkeypatch):
+async def test_search_key_uses_broad_namespace_query(monkeypatch):
+    """search_key should try a single broad namespace=~'.+' query first."""
     client = LokiClient()
     namespaces = [f'ns-{i}' for i in range(82)]
     calls = []
@@ -59,9 +60,7 @@ async def test_search_key_batches_namespaces_in_groups_of_ten(monkeypatch):
 
     async def fake_get(self, _client, url, headers, **kwargs):
         query = kwargs['params']['query']
-        ns_fragment = query.split('namespace=~"', 1)[1].split('"', 1)[0]
-        batch = [ns for ns in ns_fragment.split('|') if ns]
-        calls.append(batch)
+        calls.append(query)
         return DummyResponse({'data': {'result': []}})
 
     monkeypatch.setattr(LokiClient, '_endpoint', fake_endpoint)
@@ -70,10 +69,10 @@ async def test_search_key_batches_namespaces_in_groups_of_ten(monkeypatch):
     result = await client.search_key('booking-123', namespaces, minutes=30)
 
     assert result['total_matches'] == 0
-    assert len(calls) == 9
-    assert max(len(batch) for batch in calls) <= 10
-    assert calls[0] == namespaces[:10]
-    assert calls[-1] == namespaces[80:]
+    # First call per time chunk should be the broad query
+    assert any('namespace=~".+"' in c for c in calls)
+    # Since broad query succeeds (returns empty), no fallback batching needed
+    assert len(calls) == 1  # 1 time chunk of 30 min
 
 
 @pytest.mark.asyncio

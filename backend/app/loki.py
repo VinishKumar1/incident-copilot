@@ -215,16 +215,11 @@ class LokiClient:
     async def search_key(self, key: str, namespaces: List[str], minutes: int) -> dict:
         """Search all log levels (not just errors) for a key string across namespaces.
 
-        Works with both direct Loki and Grafana proxy sources.
-        Long namespace lists are chunked into batches of 10 to avoid Loki's regex limit.
-        Long time windows are chunked into 6-hour slices to stay within Loki's scan limit.
-        Uses k8s_cluster as second label so it works for any namespace.
+        Uses a single broad namespace=~".+" query to cover ALL namespaces in Loki
+        without needing to enumerate them first. Falls back to explicit namespace
+        batching if the broad query fails.
         """
-        log.info("search_key: searching key=%r across %d namespaces: %s", key, len(namespaces), namespaces)
-
-        # Split namespaces into batches of 10 to keep the Loki regex short enough (avoids 400).
-        NS_BATCH_SIZE = 10
-        ns_batches = [namespaces[i:i + NS_BATCH_SIZE] for i in range(0, len(namespaces), NS_BATCH_SIZE)]
+        log.info("search_key: searching key=%r, minutes=%d", key, minutes)
 
         # Chunk into 6-hour slices to avoid Loki's per-query byte limit.
         CHUNK_MINUTES = 360
@@ -237,13 +232,6 @@ class LokiClient:
             time_chunks.append((chunk_start, t))
             t = chunk_start
 
-        # All combinations of namespace batch × time chunk
-        chunks: List[tuple] = [
-            (ns_batch, chunk_start, chunk_end)
-            for ns_batch in ns_batches
-            for chunk_start, chunk_end in time_chunks
-        ]
-
         # Matches keyword-in-text for logs with no structured level (plain-text fallback).
         # Uses word boundaries to avoid false positives from class names like NullPointerException.
         _PROBLEM_RE = re.compile(r"(?i)\b(error|exception|fatal|panic|traceback|warn)\b")
@@ -255,13 +243,18 @@ class LokiClient:
         groups: Dict[tuple, dict] = {}
         all_trace_ids: List[str] = []
 
+        # Build per-time-chunk queries. Use a single broad namespace=~".+" to cover ALL
+        # namespaces without needing to enumerate them. Falls back to batching if it fails.
+        NS_BROAD = '.+'   # matches every namespace
+        NS_BATCH_SIZE = 10
+
         url, headers = self._endpoint()
         async with httpx.AsyncClient(timeout=settings.loki_timeout_seconds) as client:
-            for ns_batch, chunk_start, chunk_end in chunks:
-                ns_pattern = "|".join(ns_batch)
-                query = f'{{namespace=~"{ns_pattern}"}} |= "{key}"'
+            for chunk_start, chunk_end in time_chunks:
+                # Try broad query first (all namespaces in one shot)
+                broad_query = f'{{namespace=~"{NS_BROAD}"}} |= "{key}"'
                 params = {
-                    "query": query,
+                    "query": broad_query,
                     "start": str(int(chunk_start * 1e9)),
                     "end": str(int(chunk_end * 1e9)),
                     "limit": "2000",
@@ -269,84 +262,104 @@ class LokiClient:
                 }
                 try:
                     resp = await self._get(client, url, headers=headers, params=params)
-                    data = resp.json()
-                    result_count = len(data.get("data", {}).get("result", []))
-                    log.info("search_key: batch(%d ns) chunk query returned %d streams (status=%s)", len(ns_batch), result_count, resp.status_code)
-                    if resp.status_code >= 400:
-                        log.warning("search_key: loki error response: %s", resp.text[:500])
+                    if resp.status_code < 400:
+                        data = resp.json()
+                        log.info("search_key: broad query returned %d streams", len(data.get("data", {}).get("result", [])))
+                        streams_to_process = [(data, None)]
+                    else:
+                        log.warning("search_key: broad query failed (%s), falling back to namespace batches: %s", resp.status_code, resp.text[:200])
+                        streams_to_process = None
                 except Exception as exc:
-                    log.warning("search_key: chunk query failed: %s", exc)
-                    continue  # skip failed chunks, don't abort the whole search
+                    log.warning("search_key: broad query exception, falling back to namespace batches: %s", exc)
+                    streams_to_process = None
 
-                for stream in data.get("data", {}).get("result", []):
-                    lbl = stream.get("stream", {})
-                    ns = lbl.get("namespace", namespaces[0] if namespaces else "")
-                    svc = (
-                        lbl.get("app")
-                        or lbl.get("container")
-                        or lbl.get("pod", "unknown").rsplit("-", 2)[0]
-                    )
-                    grp_key = (ns, svc)
-                    if grp_key not in groups:
-                        groups[grp_key] = {
-                            "namespace": ns,
-                            "service": svc,
-                            "total": 0,
-                            "problem_count": 0,
-                            "problems": [],
-                            "trace_ids": [],
-                        }
-                    grp = groups[grp_key]
+                # Fallback: batch by explicit namespace list
+                if streams_to_process is None:
+                    streams_to_process = []
+                    ns_batches = [namespaces[i:i + NS_BATCH_SIZE] for i in range(0, len(namespaces), NS_BATCH_SIZE)]
+                    for ns_batch in ns_batches:
+                        ns_pattern = "|".join(ns_batch)
+                        fallback_query = f'{{namespace=~"{ns_pattern}"}} |= "{key}"'
+                        fb_params = {**params, "query": fallback_query}
+                        try:
+                            resp = await self._get(client, url, headers=headers, params=fb_params)
+                            if resp.status_code < 400:
+                                streams_to_process.append((resp.json(), ns_batch))
+                            else:
+                                log.warning("search_key: fallback batch failed: %s", resp.text[:200])
+                        except Exception as exc2:
+                            log.warning("search_key: fallback batch exception: %s", exc2)
 
-                    for ts_ns, line in stream.get("values", []):
-                        grp["total"] += 1
-                        # Prefer the Loki stream label; fall back to scanning the line text.
-                        level = (lbl.get("level") or lbl.get("detected_level") or "").lower()
-                        if not level:
-                            m = re.search(r"(?i)\b(ERROR|WARN|INFO|DEBUG|FATAL)\b", line)
-                            level = m.group(1).lower() if m else ""
-
-                        trace_id = ""
-                        for pattern in (
-                            # JSON: "traceId": "abc123"
-                            r'"[Tt]race[_-]?[Ii]d"\s*:\s*"([^"]{8,})"',
-                            # logfmt: traceId=abc123 or trace_id=abc123
-                            r'[Tt]race[_-]?[Ii]d=([0-9a-fA-F\-]{8,})',
-                            # W3C traceparent: 00-<traceId(32 hex)>-<spanId(16 hex)>-xx
-                            r'traceparent[=: ]+\d{2}-([0-9a-fA-F]{32})-',
-                            # plain 32-hex UUID-style or 16-hex trace id after "trace" keyword
-                            r'(?i)trace["\s:=]+([0-9a-fA-F]{32})',
-                            r'(?i)trace["\s:=]+([0-9a-fA-F]{16})',
-                            # Grafana/OpenTelemetry: X-B3-TraceId or similar
-                            r'[Xx]-[Bb]3-[Tt]race[Ii]d[=: ]+([0-9a-fA-F]{16,32})',
-                        ):
-                            tm = re.search(pattern, line)
-                            if tm:
-                                trace_id = tm.group(1)
-                                break
-
-                        if trace_id and trace_id not in grp["trace_ids"]:
-                            grp["trace_ids"].append(trace_id)
-                        if trace_id and trace_id not in all_trace_ids:
-                            all_trace_ids.append(trace_id)
-
-                        # A line is a problem if:
-                        # 1. Its level label is a known error/warn level, OR
-                        # 2. Level is unknown and the raw line contains problem keywords
-                        is_problem = level in _ERROR_LEVELS or (
-                            level not in _SAFE_LEVELS and bool(_PROBLEM_RE.search(line))
+                for data, _batch in streams_to_process:
+                    for stream in data.get("data", {}).get("result", []):
+                        lbl = stream.get("stream", {})
+                        ns = lbl.get("namespace", namespaces[0] if namespaces else "")
+                        svc = (
+                            lbl.get("app")
+                            or lbl.get("container")
+                            or lbl.get("pod", "unknown").rsplit("-", 2)[0]
                         )
-                        if is_problem:
-                            grp["problem_count"] += 1
-                            grp["problems"].append({
-                                "ts": str(int(ts_ns) // int(1e6)),
+                        grp_key = (ns, svc)
+                        if grp_key not in groups:
+                            groups[grp_key] = {
                                 "namespace": ns,
                                 "service": svc,
-                                "pod": lbl.get("pod", ""),
-                                "level": level or "error",
-                                "message": line[:500],
-                                "trace_id": trace_id,
-                            })
+                                "total": 0,
+                                "problem_count": 0,
+                                "problems": [],
+                                "trace_ids": [],
+                            }
+                        grp = groups[grp_key]
+
+                        for ts_ns, line in stream.get("values", []):
+                            grp["total"] += 1
+                            # Prefer the Loki stream label; fall back to scanning the line text.
+                            level = (lbl.get("level") or lbl.get("detected_level") or "").lower()
+                            if not level:
+                                m = re.search(r"(?i)\b(ERROR|WARN|INFO|DEBUG|FATAL)\b", line)
+                                level = m.group(1).lower() if m else ""
+
+                            trace_id = ""
+                            for pattern in (
+                                # JSON: "traceId": "abc123"
+                                r'"[Tt]race[_-]?[Ii]d"\s*:\s*"([^"]{8,})"',
+                                # logfmt: traceId=abc123 or trace_id=abc123
+                                r'[Tt]race[_-]?[Ii]d=([0-9a-fA-F\-]{8,})',
+                                # W3C traceparent: 00-<traceId(32 hex)>-<spanId(16 hex)>-xx
+                                r'traceparent[=: ]+\d{2}-([0-9a-fA-F]{32})-',
+                                # plain 32-hex UUID-style or 16-hex trace id after "trace" keyword
+                                r'(?i)trace["\s:=]+([0-9a-fA-F]{32})',
+                                r'(?i)trace["\s:=]+([0-9a-fA-F]{16})',
+                                # Grafana/OpenTelemetry: X-B3-TraceId or similar
+                                r'[Xx]-[Bb]3-[Tt]race[Ii]d[=: ]+([0-9a-fA-F]{16,32})',
+                            ):
+                                tm = re.search(pattern, line)
+                                if tm:
+                                    trace_id = tm.group(1)
+                                    break
+
+                            if trace_id and trace_id not in grp["trace_ids"]:
+                                grp["trace_ids"].append(trace_id)
+                            if trace_id and trace_id not in all_trace_ids:
+                                all_trace_ids.append(trace_id)
+
+                            # A line is a problem if:
+                            # 1. Its level label is a known error/warn level, OR
+                            # 2. Level is unknown and the raw line contains problem keywords
+                            is_problem = level in _ERROR_LEVELS or (
+                                level not in _SAFE_LEVELS and bool(_PROBLEM_RE.search(line))
+                            )
+                            if is_problem:
+                                grp["problem_count"] += 1
+                                grp["problems"].append({
+                                    "ts": str(int(ts_ns) // int(1e6)),
+                                    "namespace": ns,
+                                    "service": svc,
+                                    "pod": lbl.get("pod", ""),
+                                    "level": level or "error",
+                                    "message": line[:500],
+                                    "trace_id": trace_id,
+                                })
 
         services = sorted(groups.values(), key=lambda g: g["problem_count"], reverse=True)
         total_matches = sum(g["total"] for g in services)
