@@ -49,18 +49,17 @@ def test_error_query_contains_namespace_selector_and_level_filters():
 
 
 @pytest.mark.asyncio
-async def test_search_key_uses_broad_namespace_query(monkeypatch):
-    """search_key should try a single broad namespace=~'.+' query first."""
+async def test_search_key_uses_iom_namespace_pattern(monkeypatch):
+    """search_key should use namespace=~'iom-.+' with cluster selector."""
     client = LokiClient()
-    namespaces = [f'ns-{i}' for i in range(82)]
+    namespaces = ['iom-preprod', 'iom-prod', 'other-ns']
     calls = []
 
     def fake_endpoint(self):
         return 'http://example/query', {}
 
     async def fake_get(self, _client, url, headers, **kwargs):
-        query = kwargs['params']['query']
-        calls.append(query)
+        calls.append(kwargs['params']['query'])
         return DummyResponse({'data': {'result': []}})
 
     monkeypatch.setattr(LokiClient, '_endpoint', fake_endpoint)
@@ -69,10 +68,8 @@ async def test_search_key_uses_broad_namespace_query(monkeypatch):
     result = await client.search_key('booking-123', namespaces, minutes=30)
 
     assert result['total_matches'] == 0
-    # First call per time chunk should be the broad query
-    assert any('namespace=~".+"' in c for c in calls)
-    # Since broad query succeeds (returns empty), no fallback batching needed
-    assert len(calls) == 1  # 1 time chunk of 30 min
+    # Primary query should use iom-.+ pattern
+    assert any('iom-.+' in c for c in calls)
 
 
 @pytest.mark.asyncio

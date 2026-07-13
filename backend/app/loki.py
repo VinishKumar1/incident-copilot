@@ -213,11 +213,11 @@ class LokiClient:
         return entries
 
     async def search_key(self, key: str, namespaces: List[str], minutes: int) -> dict:
-        """Search all log levels (not just errors) for a key string across namespaces.
+        """Search all log levels for a key string across IOM namespaces.
 
-        Uses a single broad namespace=~".+" query to cover ALL namespaces in Loki
-        without needing to enumerate them first. Falls back to explicit namespace
-        batching if the broad query fails.
+        Uses namespace=~"iom-.+" with the configured cluster selector so Grafana's
+        Loki proxy gets the required k8s_cluster label. Falls back to explicit
+        namespace batching if the regex query fails.
         """
         log.info("search_key: searching key=%r, minutes=%d", key, minutes)
 
@@ -233,64 +233,68 @@ class LokiClient:
             t = chunk_start
 
         # Matches keyword-in-text for logs with no structured level (plain-text fallback).
-        # Uses word boundaries to avoid false positives from class names like NullPointerException.
         _PROBLEM_RE = re.compile(r"(?i)\b(error|exception|fatal|panic|traceback|warn)\b")
-        # Looser match for exception *class names* (e.g. NullPointerException, RuntimeException).
-        # Only used when the log level is already known to be non-error to avoid false positives.
         _EXCEPTION_CLASS_RE = re.compile(r"(?i)(Exception|Error)\b")
         _ERROR_LEVELS = {"error", "warn", "warning", "fatal", "panic", "severe", "critical", "err", "crit"}
         _SAFE_LEVELS  = {"info", "debug", "trace"}
         groups: Dict[tuple, dict] = {}
         all_trace_ids: List[str] = []
 
-        # Build per-time-chunk queries. Use a single broad namespace=~".+" to cover ALL
-        # namespaces without needing to enumerate them. Falls back to batching if it fails.
-        NS_BROAD = '.+'   # matches every namespace
-        NS_BATCH_SIZE = 10
+        # Primary query: namespace=~"iom-.+" covers all IOM environments (preprod/prod/staging)
+        # Grafana's Loki proxy requires k8s_cluster label — use _cluster_selector().
+        # Fallback: batch explicit namespaces (filtered to iom-* only) if primary fails.
+        IOM_NS_PATTERN = "iom-.+"
+        NS_BATCH_SIZE = 5  # smaller batches to stay under URL length limits
+        iom_namespaces = [ns for ns in namespaces if ns.startswith("iom-")]
+        if not iom_namespaces:
+            iom_namespaces = namespaces  # fallback if no iom- namespaces found
 
         url, headers = self._endpoint()
         async with httpx.AsyncClient(timeout=settings.loki_timeout_seconds) as client:
             for chunk_start, chunk_end in time_chunks:
-                # Try broad query first (all namespaces in one shot)
-                broad_query = f'{{namespace=~"{NS_BROAD}"}} |= "{key}"'
-                params = {
-                    "query": broad_query,
+                base_params = {
                     "start": str(int(chunk_start * 1e9)),
                     "end": str(int(chunk_end * 1e9)),
                     "limit": "2000",
                     "direction": "backward",
                 }
-                try:
-                    resp = await self._get(client, url, headers=headers, params=params)
-                    if resp.status_code < 400:
-                        data = resp.json()
-                        log.info("search_key: broad query returned %d streams", len(data.get("data", {}).get("result", [])))
-                        streams_to_process = [(data, None)]
-                    else:
-                        log.warning("search_key: broad query failed (%s), falling back to namespace batches: %s", resp.status_code, resp.text[:200])
-                        streams_to_process = None
-                except Exception as exc:
-                    log.warning("search_key: broad query exception, falling back to namespace batches: %s", exc)
-                    streams_to_process = None
 
-                # Fallback: batch by explicit namespace list
-                if streams_to_process is None:
-                    streams_to_process = []
-                    ns_batches = [namespaces[i:i + NS_BATCH_SIZE] for i in range(0, len(namespaces), NS_BATCH_SIZE)]
-                    for ns_batch in ns_batches:
-                        ns_pattern = "|".join(ns_batch)
-                        fallback_query = f'{{namespace=~"{ns_pattern}"}} |= "{key}"'
-                        fb_params = {**params, "query": fallback_query}
+                # Try primary: broad iom-.+ namespace regex with cluster selector
+                primary_query = f'{{namespace=~"{IOM_NS_PATTERN}", {_cluster_selector()}}} |= "{key}"'
+                try:
+                    resp = await self._get(client, url, headers=headers,
+                                           params={**base_params, "query": primary_query})
+                    if resp.status_code < 400:
+                        log.info("search_key: primary query returned %d streams",
+                                 len(resp.json().get("data", {}).get("result", [])))
+                        batches_data = [resp.json()]
+                    else:
+                        log.warning("search_key: primary query %s, falling back to batches: %s",
+                                    resp.status_code, resp.text[:200])
+                        batches_data = None
+                except Exception as exc:
+                    log.warning("search_key: primary query failed (%s), falling back to batches", exc)
+                    batches_data = None
+
+                # Fallback: explicit iom-* namespace batches
+                if batches_data is None:
+                    batches_data = []
+                    for i in range(0, len(iom_namespaces), NS_BATCH_SIZE):
+                        batch = iom_namespaces[i:i + NS_BATCH_SIZE]
+                        ns_pattern = "|".join(batch)
+                        fb_query = f'{{namespace=~"{ns_pattern}", {_cluster_selector()}}} |= "{key}"'
                         try:
-                            resp = await self._get(client, url, headers=headers, params=fb_params)
+                            resp = await self._get(client, url, headers=headers,
+                                                   params={**base_params, "query": fb_query})
                             if resp.status_code < 400:
-                                streams_to_process.append((resp.json(), ns_batch))
+                                batches_data.append(resp.json())
                             else:
-                                log.warning("search_key: fallback batch failed: %s", resp.text[:200])
+                                log.warning("search_key: fallback batch %s failed: %s",
+                                            batch, resp.text[:100])
                         except Exception as exc2:
                             log.warning("search_key: fallback batch exception: %s", exc2)
 
-                for data, _batch in streams_to_process:
+                for data in batches_data:
                     for stream in data.get("data", {}).get("result", []):
                         lbl = stream.get("stream", {})
                         ns = lbl.get("namespace", namespaces[0] if namespaces else "")
@@ -428,7 +432,7 @@ class LokiClient:
         async with httpx.AsyncClient(timeout=settings.loki_timeout_seconds) as client:
             for trace_id in trace_ids[:10]:  # cap at 10 trace IDs to avoid excessive queries
                 # Search for this trace ID across the given namespaces
-                query = f'{{namespace=~"{ns_pattern}"}} |= "{trace_id}"'
+                query = f'{{namespace=~"{ns_pattern}", {_cluster_selector()}}} |= "{trace_id}"'
                 params = {
                     "query": query,
                     "start": str(int(start_ts * 1e9)),
