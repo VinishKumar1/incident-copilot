@@ -440,12 +440,18 @@ class LokiClient:
 
                 for ts_ns, line in stream.get("values", []):
                     level = (lbl.get("level") or lbl.get("detected_level") or "").lower()
-                    if not level:
-                        m = re.search(r"(?i)\b(ERROR|WARN|INFO|DEBUG|FATAL)\b", line)
-                        level = m.group(1).lower() if m else ""
 
-                    is_problem = level in _ERROR_LEVELS or (
-                        level not in _SAFE_LEVELS and bool(_PROBLEM_RE.search(line))
+                    # For trace-matched lines: trust the log text content over the
+                    # Loki level label. Java/Spring apps often emit ERROR text but
+                    # Loki labels them "info" due to misconfigured log parsers.
+                    text_level_match = re.search(r"(?i)\b(ERROR|WARN|EXCEPTION|FATAL|PANIC)\b", line)
+                    effective_level = level if level in _ERROR_LEVELS else (
+                        text_level_match.group(1).lower() if text_level_match else level
+                    )
+
+                    is_problem = (
+                        effective_level in _ERROR_LEVELS
+                        or bool(_PROBLEM_RE.search(line))
                     )
                     if not is_problem:
                         continue
@@ -469,7 +475,7 @@ class LokiClient:
                         "namespace": ns,
                         "service":   svc,
                         "pod":       lbl.get("pod", ""),
-                        "level":     level or "error",
+                        "level":     effective_level or "error",
                         "message":   line[:500],
                         "trace_id":  trace_id,
                     })
