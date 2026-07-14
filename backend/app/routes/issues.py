@@ -206,7 +206,7 @@ async def adhoc_issue(req: AdhocIssueRequest):
 
 
 @router.get("/search", response_model=SearchResponse)
-async def search(key: str, minutes: int = 120):
+async def search(key: str, minutes: int = 1440):
     """Find problems related to a key (booking/container/BOL number, trace id) across all services."""
     key = (key or "").strip()
     if len(key) < 3:
@@ -218,7 +218,7 @@ async def search(key: str, minutes: int = 120):
 
 
 @router.get("/search/summary", response_model=SearchSummaryResponse)
-async def search_summary(key: str, minutes: int = 120):
+async def search_summary(key: str, minutes: int = 1440):
     """Plain-English summary of what's wrong with a booking, from cross-service error logs."""
     key = (key or "").strip()
     if len(key) < 3:

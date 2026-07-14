@@ -256,7 +256,13 @@ class LokiClient:
             try:
                 resp = await self._get(client, url, headers=headers, params=params)
                 if resp.status_code < 400:
-                    return resp.json()
+                    data = resp.json()
+                    streams = data.get("data", {}).get("result", [])
+                    if streams:
+                        # Log first raw line to help debug trace ID extraction
+                        first_line = streams[0].get("values", [[None, ""]])[0][1]
+                        log.info("search_key raw sample ns=%s: %r", ns, first_line[:300])
+                    return data
                 log.warning("search_key: ns=%s status=%s: %s", ns, resp.status_code, resp.text[:100])
             except Exception as exc:
                 log.warning("search_key: ns=%s error: %s", ns, exc)
@@ -357,7 +363,8 @@ class LokiClient:
         trace_issues: List[dict] = []
         if trace_ids_to_follow:
             trace_issues = await self._search_trace_ids(
-                trace_ids_to_follow, namespaces, start_ts, end_ts
+                trace_ids_to_follow, namespaces, start_ts, end_ts,
+                hit_groups=list(groups.values()),
             )
 
         return {
@@ -378,15 +385,32 @@ class LokiClient:
         namespaces: List[str],
         start_ts: float,
         end_ts: float,
+        hit_groups: List[dict] = None,
     ) -> List[dict]:
-        """Phase 2: for each trace ID found in phase 1, search across ALL
-        namespaces for error-level log lines that carry the same trace ID.
-        Also runs error-level queries for services that matched the key (phase 1)
-        but whose error logs may not carry the trace ID as a field.
-        Queries each namespace individually (exact match) in parallel.
+        """Phase 2: search for errors sharing trace IDs found in phase 1.
+        Only searches namespaces where the key was matched. Uses 6h chunks
+        to stay within Grafana's max query range. Sequential per chunk to avoid 429.
         """
         if not trace_ids:
             return []
+
+        # Search ALL available namespaces for trace errors — the error could be in a
+        # different service/namespace than where the key was found (e.g. key found in
+        # iom-offer-service but error is in iom-order-service or vice versa).
+        search_namespaces = list({g["namespace"] for g in hit_groups}) if hit_groups else namespaces[:3]
+
+        # Use same 6h chunks as phase 1 to stay within Grafana's max range
+        CHUNK_MINUTES = 360
+        time_chunks: List[tuple] = []
+        t = end_ts
+        while t > start_ts:
+            chunk_start = max(t - CHUNK_MINUTES * 60, start_ts)
+            time_chunks.append((chunk_start, t))
+            t = chunk_start
+
+        # Use up to 5 trace IDs but filter to errors only in each query — much more
+        # efficient than fetching all lines per trace (avoids 429 from large result sets).
+        search_trace_ids = trace_ids[:5]
 
         _ERROR_LEVELS = {"error", "warn", "warning", "fatal", "panic", "severe", "critical", "err", "crit"}
         _SAFE_LEVELS  = {"info", "debug", "trace"}
@@ -395,38 +419,63 @@ class LokiClient:
         groups: Dict[tuple, dict] = {}
         url, headers = self._endpoint()
 
-        async def _query_trace_ns(client, trace_id: str, ns: str):
-            query = f'{{namespace="{ns}", {_cluster_selector()}, {_APP_EXCLUSION}}} |= "{trace_id}"'
+        async def _query_trace_ns(client, trace_id: str, ns: str, chunk_start: float, chunk_end: float):
+            # Only fetch log lines that contain error/exception keywords for this trace.
+            # This lets us check many more trace IDs without blasting Grafana.
+            query = (
+                f'{{namespace="{ns}", {_cluster_selector()}, {_APP_EXCLUSION}}} '
+                f'|= "{trace_id}" '
+                f'|~ "(?i)\\b(error|exception|fatal|panic|traceback|EXCEPTION|ERROR)\\b"'
+            )
             params = {
                 "query": query,
-                "start": str(int(start_ts * 1e9)),
-                "end":   str(int(end_ts   * 1e9)),
-                "limit": "500",
+                "start": str(int(chunk_start * 1e9)),
+                "end":   str(int(chunk_end   * 1e9)),
+                "limit": "200",
                 "direction": "backward",
             }
-            try:
-                resp = await self._get(client, url, headers=headers, params=params)
-                if resp.status_code < 400:
+            for attempt in range(3):
+                try:
+                    resp = await self._get(client, url, headers=headers, params=params)
                     return trace_id, resp.json()
-                log.warning("_search_trace_ids: ns=%s trace=%s status=%s", ns, trace_id, resp.status_code)
-            except Exception as exc:
-                log.warning("_search_trace_ids: ns=%s trace=%s error: %s", ns, trace_id, exc)
+                except httpx.HTTPStatusError as exc:
+                    status = exc.response.status_code
+                    if status == 429:
+                        wait = 2 ** attempt
+                        log.warning("_search_trace_ids: 429 ns=%s trace=%s, retry in %ds", ns, trace_id[:8], wait)
+                        await asyncio.sleep(wait)
+                        continue
+                    log.warning("_search_trace_ids: ns=%s trace=%s status=%s: %s", ns, trace_id[:8], status, exc.response.text[:80])
+                    break
+                except Exception as exc:
+                    log.warning("_search_trace_ids: ns=%s trace=%s error: %s", ns, trace_id[:8], exc)
+                    break
             return trace_id, None
 
+        # Brief pause after phase 1's burst of parallel queries
+        await asyncio.sleep(1)
+        log.info("_search_trace_ids: checking %d trace IDs across %d namespaces",
+                 len(search_trace_ids), len(search_namespaces))
+
         async with httpx.AsyncClient(timeout=settings.loki_timeout_seconds) as client:
-            # Limit concurrency to avoid 429 from Grafana rate limiter.
-            semaphore = asyncio.Semaphore(5)
+            semaphore = asyncio.Semaphore(2)
 
-            async def _bounded_query(tid, ns):
+            async def _bounded_query(tid, ns, chunk_start, chunk_end):
                 async with semaphore:
-                    return await _query_trace_ns(client, tid, ns)
+                    return await _query_trace_ns(client, tid, ns, chunk_start, chunk_end)
 
-            tasks = [
-                _bounded_query(tid, ns)
-                for tid in trace_ids[:5]   # cap trace IDs
-                for ns in namespaces[:20]  # cap namespaces
-            ]
-            results = await asyncio.gather(*tasks)
+            all_results = []
+            for chunk_start, chunk_end in time_chunks:
+                tasks = [
+                    _bounded_query(tid, ns, chunk_start, chunk_end)
+                    for tid in search_trace_ids
+                    for ns in search_namespaces
+                ]
+                chunk_results = await asyncio.gather(*tasks)
+                all_results.extend(chunk_results)
+                if any(r[1] for r in chunk_results):
+                    break  # found results — no need to go further back
+            results = all_results
 
         for trace_id, data in results:
             if not data:

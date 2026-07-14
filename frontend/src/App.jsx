@@ -761,7 +761,7 @@ function NamespaceSummary({ namespace, issues: liveIssues = [] }) {
 
 function SearchView() {
   const [key, setKey] = useState('')
-  const [minutes, setMinutes] = useState(120)
+  const [minutes] = useState(1440)
   const [res, setRes] = useState(null)
   const [loading, setLoading] = useState(false)
   const [summary, setSummary] = useState(null)
@@ -798,21 +798,6 @@ function SearchView() {
           placeholder="Search a key — booking #, container #, BOL #, or trace id…"
           onChange={(e) => setKey(e.target.value)}
         />
-        <select
-          className="mds-native-select mds-native-select--sm"
-          value={minutes}
-          onChange={(e) => setMinutes(Number(e.target.value))}
-          title="time window"
-        >
-          <option value={30}>last 30m</option>
-          <option value={60}>last 1h</option>
-          <option value={120}>last 2h</option>
-          <option value={360}>last 6h</option>
-          <option value={720}>last 12h</option>
-          <option value={1440}>last 1 day</option>
-          <option value={2880}>last 2 days</option>
-          <option value={10080}>last 7 days</option>
-        </select>
         <Btn variant="filled" appearance="primary" disabled={loading} type="submit">Search</Btn>
       </form>
 
@@ -850,7 +835,7 @@ function SearchView() {
 
             <div className="mds-search-stats">
               <strong>"{res.key}"</strong> — {res.problem_count} problem(s) across {withProblems.length} service(s);
-              {' '}{res.total_matches} total log match(es) in the last {res.minutes}m.
+              {' '}{res.total_matches} total log match(es) in the last {res.minutes >= 1440 ? `${res.minutes/60}h` : res.minutes >= 60 ? `${res.minutes/60}h` : `${res.minutes}m`}.
               <div className="mds-hint">{res.total_matches} log line(s) matched across {res.namespaces?.length || 1} namespace(s)</div>
               {res.note && <div className="mds-hint">{res.note}</div>}
             </div>
