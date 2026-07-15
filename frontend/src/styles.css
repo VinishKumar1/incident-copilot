@@ -1196,6 +1196,16 @@ mc-notification {
 @media (prefers-color-scheme: dark) {
   /* ── Base token overrides ── */
   :root {
+    --mds_brand_appearance_neutral_weak_background: #1a1f2e;
+    --mds_brand_appearance_neutral_weakest_background: #141824;
+    --mds_brand_appearance_neutral_weak_border: #2d3448;
+    --mds_brand_appearance_neutral_default_text-color: #e2e8f0;
+    --mds_brand_appearance_neutral_weak_text-color: #94a3b8;
+    --mds_brand_appearance_primary_weak_background: #1e3a5f;
+    --mds_brand_appearance_primary_weak_border: #2d5a8e;
+    --mds_brand_appearance_warning_default_text: #fbbf24;
+    --mds_brand_appearance_warning_weak_border: #78350f;
+  }
     --mds_brand_appearance_neutral_weakest_background: #0f1117;
     --mds_brand_appearance_neutral_default_text-color: #e2e8f0;
     --mds_brand_appearance_primary_default_background: #60a5fa;
@@ -1348,6 +1358,91 @@ mc-notification {
   ::-webkit-scrollbar-track { background: #1a1f2e; }
   ::-webkit-scrollbar-thumb { background: #2d3448; border-radius: 3px; }
   ::-webkit-scrollbar-thumb:hover { background: #3d4a5e; }
+
+  /* ── Header ── */
+  .mds-header { background: #001829; border-bottom-color: #2d3448; }
+  .mds-header__product { color: #e2e8f0; }
+  .mds-header__user-name { color: #e2e8f0; }
+  .mds-header__ns-picker { background: #1e2433; border-color: #2d3448; color: #e2e8f0; }
+  .mds-header__status-tags { color: #94a3b8; }
+
+  /* ── Issue list ── */
+  .mds-issue-list { background: #141824; border-right-color: #2d3448; }
+  .mds-issue-list__head { background: #0f1117; border-bottom-color: #2d3448; }
+  .mds-issue-list__title { color: #94a3b8; }
+  .mds-issue-item { border-bottom-color: #2d3448; color: #e2e8f0; }
+  .mds-issue-item:hover { background: #1a1f2e; }
+  .mds-issue-item--selected { background: #1e3a5f !important; border-left-color: #3b82f6; }
+  .mds-issue-item__svc { color: #e2e8f0; }
+  .mds-issue-item__title { color: #cbd5e1; }
+  .mds-issue-item__meta { color: #64748b; }
+
+  /* ── Detail panel ── */
+  .mds-detail { background: #1a1f2e; }
+  .mds-detail__head { border-bottom-color: #2d3448; }
+  .mds-detail__service-name { color: #e2e8f0; }
+  .mds-detail__placeholder { color: #64748b; }
+
+  /* ── Section panels ── */
+  .mds-section { background: #1a1f2e; border-color: #2d3448; }
+  .mds-section__head { background: #141824; border-bottom-color: #2d3448; }
+  .mds-section__title { color: #e2e8f0; }
+  .mds-analysis-body { color: #e2e8f0; }
+
+  /* ── Text input ── */
+  .mds-text-input { background: #1e2433; border-color: #2d3448; color: #e2e8f0; }
+  .mds-text-input::placeholder { color: #64748b; }
+  .mds-text-input:focus { border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59,130,246,0.25); }
+
+  /* ── Code blocks ── */
+  .mds-code-block { background: #0f1117; border-color: #2d3448; color: #e2e8f0; }
+
+  /* ── Chat ── */
+  .mds-chat__log { background: #1a1f2e; }
+  .mds-chat__msg--user { background: #1d4ed8; }
+  .mds-chat__msg--assistant { background: #1e2433; border-color: #2d3448; color: #e2e8f0; }
+  .mds-chat__form { border-top-color: #2d3448; background: #1a1f2e; }
+
+  /* ── Summary ── */
+  .mds-summary-headline { color: #e2e8f0; }
+  .mds-summary-issue-card { background: #1a1f2e; border-color: #2d3448; }
+  .mds-summary-issue-card__svc { color: #e2e8f0; }
+  .mds-summary-issue-card__text { color: #cbd5e1; }
+  .mds-summary-card { background: #1e3a5f; border-color: #2d5a8e; color: #93c5fd; }
+
+  /* ── SI analysis ── */
+  .mds-si-analysis__label { color: #94a3b8; }
+  .mds-si-analysis__body { background: #0f1117; border-color: #2d3448; color: #e2e8f0; }
+
+  /* ── Search view ── */
+  .mds-search-stats { color: #94a3b8; border-bottom-color: #2d3448; }
+
+  /* ── Service cards ── */
+  .mds-svc-card { background: #1a1f2e; border-color: #2d3448; }
+  .mds-svc-card__head { background: #141824; border-bottom-color: #2d3448; }
+  .mds-svc-card__name { color: #e2e8f0; }
+  .mds-svc-card--trace { background: #2d1a05; border-color: #78350f; }
+  .mds-svc-card--trace .mds-svc-card__head { background: #3b1f06; border-bottom-color: #78350f; }
+
+  /* ── Trace issues ── */
+  .mds-trace-issues-section { border-top-color: #b45309; }
+  .mds-trace-issues-title { color: #fbbf24; }
+
+  /* ── Match rows ── */
+  .mds-match { border-bottom-color: #2d3448; }
+  .mds-match__msg { color: #e2e8f0; }
+  .mds-match__meta { color: #64748b; }
+
+  /* ── Investigation panel ── */
+  .mds-investigate__body { background: #0f1117; color: #e2e8f0; }
+
+  /* ── Labels / subheadings ── */
+  .mds-label { color: #94a3b8; }
+  .mds-subheading { color: #e2e8f0; }
+  .mds-body-text { color: #cbd5e1; }
+
+  /* ── Loading row ── */
+  .mds-loading-row { color: #94a3b8; }
 }
 
 /* ── Incident Search ──────────────────────────────────────────────────────── */
