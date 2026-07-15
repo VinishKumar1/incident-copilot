@@ -1205,9 +1205,6 @@ mc-notification {
     --mds_brand_appearance_primary_weak_border: #2d5a8e;
     --mds_brand_appearance_warning_default_text: #fbbf24;
     --mds_brand_appearance_warning_weak_border: #78350f;
-  }
-    --mds_brand_appearance_neutral_weakest_background: #0f1117;
-    --mds_brand_appearance_neutral_default_text-color: #e2e8f0;
     --mds_brand_appearance_primary_default_background: #60a5fa;
     --mds_brand_appearance_neutral_inverse_background: #001829;
     --mds_brand_appearance_neutral_inverse_text-color: #f0f4f8;
