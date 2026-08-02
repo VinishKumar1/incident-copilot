@@ -112,7 +112,7 @@ async def search_key(key: str, minutes: int = 120) -> dict:
 
     try:
         all_namespaces = await loki_client.list_namespaces()
-        iom_namespaces = [ns for ns in all_namespaces if ns.startswith("iom-")]
+        iom_namespaces = [ns for ns in all_namespaces if ns.startswith(("iom-", "telikos-"))]
     except Exception:
         iom_namespaces = []
 

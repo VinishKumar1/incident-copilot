@@ -1452,13 +1452,19 @@ function AppShell({ ssoEnabled }) {
     refresh()
     const t = setInterval(refresh, REFRESH_MS)
     const tick = setInterval(() => setNow((n) => n + 1), 1000)
-    listNamespaces().then((nsList) => {
+    listNamespaces().then(async (nsList) => {
       setNamespaces(nsList)
-      // Restore previously selected namespace if still available
+      // Restore previously selected namespace if still available.
+      // Must await setNamespace so the backend switches before we refresh status/issues —
+      // otherwise the racing getStatus() from the initial refresh() can overwrite the
+      // dropdown with the old namespace while the backend is already polling the new one.
       const saved = localStorage.getItem('tfr_namespace')
       if (saved && nsList.includes(saved)) {
-        setNamespace(saved).catch(() => {})
-        setStatus((s) => (s ? { ...s, namespace: saved } : s))
+        try {
+          await setNamespace(saved)
+          getStatus().then(setStatus).catch(() => {})
+          listIssues().then(setIssues).catch(() => {})
+        } catch { /* ignore — keep default namespace */ }
       }
     }).catch((e) => console.error('listNamespaces failed:', e))
     return () => { clearInterval(t); clearInterval(tick) }

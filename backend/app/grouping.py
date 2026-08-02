@@ -108,6 +108,7 @@ def merge_entries(existing: List[Issue], entries: List[LogEntry]) -> List[Issue]
                 title=_title(e.line),
                 level=level,
                 service=svc,
+                namespace=e.labels.get("namespace", ""),
                 count=0,
                 first_seen=e.timestamp,
                 last_seen=e.timestamp,
