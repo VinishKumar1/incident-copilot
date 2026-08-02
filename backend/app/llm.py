@@ -511,11 +511,15 @@ class LLMClient:
                         minutes = int(args.get("minutes", 5) or 5)
                     except (TypeError, ValueError):
                         minutes = 5
-                    result = await get_service_logs(
-                        service=str(args.get("service", "")),
-                        minutes=minutes,
-                        level=str(args.get("level", "") or ""),
-                    )
+                    try:
+                        result = await get_service_logs(
+                            service=str(args.get("service", "")),
+                            minutes=minutes,
+                            level=str(args.get("level", "") or ""),
+                        )
+                    except Exception as exc:
+                        log.warning("get_service_logs tool error: %s", exc)
+                        result = {"error": f"Failed to fetch logs: {exc}", "lines": [], "matched_pods": 0}
                 else:
                     result = {"error": f"unknown tool {tc.function.name}"}
                 messages.append({"role": "tool", "tool_call_id": tc.id, "content": json.dumps(result)[:8000]})

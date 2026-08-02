@@ -540,7 +540,11 @@ class LokiClient:
     ) -> dict:
         """On-demand log fetch for a named service via Loki/Grafana."""
         level_filter = f' |~ "(?i){level}"' if level else ""
-        query = f'{{namespace="{namespace}", {_cluster_selector()}, app=~".*{re.escape(service)}.*"}}{level_filter}'
+        # re.escape escapes hyphens as \- which is invalid in Loki's RE2 engine.
+        # Only escape chars that RE2 treats as special (not hyphens outside char classes).
+        _RE2_SPECIAL = re.compile(r'([.+*?()\[\]{}^$|/\\])')
+        safe_svc = _RE2_SPECIAL.sub(r'\\\1', service)
+        query = f'{{namespace="{namespace}", {_cluster_selector()}, app=~".*{safe_svc}.*"}}{level_filter}'
         end = time.time()
         start = end - minutes * 60
         params = {
