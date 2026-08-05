@@ -26,6 +26,7 @@ class Issue(BaseModel):
     title: str
     level: str = "error"
     service: str = "unknown"
+    namespace: str = ""
     count: int = 0
     first_seen: float = 0.0
     last_seen: float = 0.0

@@ -54,7 +54,10 @@ async def _get_context(issue: Issue) -> dict:
 
 @router.get("/issues", response_model=List[Issue])
 async def list_issues():
-    return await store.list_issues()
+    issues = await store.list_issues()
+    ns = runtime.namespace
+    # Filter to the selected namespace; keep issues with no namespace set (legacy)
+    return [i for i in issues if not i.namespace or i.namespace == ns]
 
 
 @router.get("/issues/{issue_id}", response_model=Issue)
@@ -265,6 +268,7 @@ async def namespace_summary(refresh: bool = False):
             return cached.model_copy(update={"cached": True})
 
     issues = await store.list_issues()
+    issues = [i for i in issues if not i.namespace or i.namespace == namespace]
     payload = await llm_client.summarize_namespace(namespace, minutes, issues)
 
     result = NamespaceSummaryResponse(

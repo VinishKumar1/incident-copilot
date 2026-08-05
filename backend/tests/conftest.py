@@ -73,6 +73,7 @@ def sample_issue():
         id='issue-1',
         title='Database error',
         service='orders',
+        namespace='telikos-dev',
         count=2,
         first_seen=10.0,
         last_seen=20.0,
