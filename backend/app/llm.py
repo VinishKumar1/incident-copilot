@@ -107,6 +107,35 @@ _CODE_SYSTEM = (
 )
 
 
+# ── Incident analysis (ServiceNow-ready draft) ──────────────────────────────────
+# Used by the /api/snow/incident/{number}/analyze fallback when L1's knowledge-base
+# lookup (l1_agent.py) has no confident match. context_text already folds in logs,
+# optional code context, and optional web-search results — this call just synthesizes.
+_INCIDENT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "summary": {"type": "string", "description": "ONE crisp sentence: what failed and why."},
+        "root_cause": {"type": "string", "description": "The concrete root cause, citing the evidence (logs/code/web) it came from."},
+        "suggested_fix": {"type": "string", "description": "A concrete, actionable fix or next step."},
+        "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+        "servicenow_work_note": {
+            "type": "string",
+            "description": "Ready to paste into a ServiceNow work note as-is: plain professional language, states what failed, the concrete reason, and the suggested next step. No markdown.",
+        },
+    },
+    "required": ["summary", "root_cause", "suggested_fix", "confidence", "servicenow_work_note"],
+}
+_INCIDENT_TOOL = "report_incident_analysis"
+_INCIDENT_SYSTEM = (
+    "You are an SRE drafting a ServiceNow work note for an incident. Be concrete and specific "
+    "to the evidence provided — logs, code, and/or web sources — and never invent evidence that "
+    "wasn't given. If the evidence is thin, say so plainly rather than guessing. The "
+    "servicenow_work_note field must read as a professional internal work note, ready to paste "
+    "as-is: state what failed, the concrete reason, and the suggested next step, in plain "
+    "sentences with no markdown formatting."
+)
+
+
 _FIX_SCHEMA = {
     "type": "object",
     "properties": {
@@ -406,6 +435,25 @@ class LLMClient:
                 for rf in rel
             ]
         return base
+
+    async def analyze_incident(self, context_text: str) -> dict:
+        """Synthesizes logs (+ optionally code and/or web-search results, already folded
+        into context_text by the caller) into a ServiceNow-ready recommendation. Used when
+        L1's knowledge-base lookup has no confident match. Returns a dict shaped like
+        _INCIDENT_SCHEMA."""
+        if self._client is None:
+            return {
+                "summary": "[mock] Set an API key and USE_MOCK=false for real analysis.",
+                "root_cause": "",
+                "suggested_fix": "",
+                "confidence": "low",
+                "servicenow_work_note": (
+                    "[mock] AI analysis unavailable in mock mode — set an API key and "
+                    "USE_MOCK=false."
+                ),
+            }
+        prompt = "Diagnose this incident and draft a ServiceNow work note.\n\n" + context_text
+        return await self._structured(prompt, _INCIDENT_SYSTEM, _INCIDENT_SCHEMA, _INCIDENT_TOOL, max_tokens=900)
 
     async def summarize_namespace(self, namespace: str, minutes: int, issues: list) -> dict:
         """Plain-English health summary of all current issues in a namespace."""

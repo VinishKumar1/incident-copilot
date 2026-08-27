@@ -162,3 +162,40 @@ class NamespaceSummaryResponse(BaseModel):
     issues: List[NamespaceSummaryIssue] = Field(default_factory=list)
     top_concern: str = ""
     cached: bool = False
+
+
+class KBEntry(BaseModel):
+    id: str = ""
+    fingerprint: str = ""
+    service: str = ""
+    pattern_text: str
+    root_cause: str
+    fix_summary: str
+    servicenow_incident: str = ""
+    verified_by: str = ""
+    verified_at: float = 0.0
+
+
+class KBMatch(BaseModel):
+    entry: KBEntry
+    confidence: float
+
+
+class Recommendation(BaseModel):
+    incident_number: str = ""
+    issue_id: str = ""
+    source: str = "l1"  # "l1" (knowledge base) | "llm" (cold analysis, optionally + web)
+    summary: str = ""
+    root_cause: str = ""
+    suggested_fix: str = ""
+    confidence: float = 0.0
+    confidence_label: str = "unknown"  # low | medium | high
+    servicenow_work_note: str = ""
+    kb_entry_id: str = ""
+    sources_used: List[str] = Field(default_factory=list)
+
+
+class MarkUsedRequest(BaseModel):
+    used: bool
+    edited: bool = False
+    notes: str = ""

@@ -78,6 +78,17 @@ async def _init_pg(pool) -> None:
         """)
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_au_ts  ON api_usage(ts)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_au_api ON api_usage(api)")
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS kb_feedback (
+                id               BIGSERIAL PRIMARY KEY,
+                ts               DOUBLE PRECISION NOT NULL,
+                incident_number  TEXT NOT NULL,
+                used             BOOLEAN NOT NULL,
+                edited           BOOLEAN NOT NULL DEFAULT FALSE,
+                notes            TEXT
+            )
+        """)
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_kf_incident ON kb_feedback(incident_number)")
 
 
 async def _pg_record(user_email: str, user_name: str, action: str, detail: str) -> None:
@@ -193,6 +204,15 @@ def _get_sqlite():
         );
         CREATE INDEX IF NOT EXISTS idx_au_ts  ON api_usage(ts);
         CREATE INDEX IF NOT EXISTS idx_au_api ON api_usage(api);
+        CREATE TABLE IF NOT EXISTS kb_feedback (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts               REAL NOT NULL,
+            incident_number  TEXT NOT NULL,
+            used             INTEGER NOT NULL,
+            edited           INTEGER NOT NULL DEFAULT 0,
+            notes            TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_kf_incident ON kb_feedback(incident_number);
     """)
     conn.commit()
     _sqlite_conn = conn
@@ -327,6 +347,40 @@ async def record_api_usage(api: str, model: str = "", prompt_tokens: int = 0, co
             _sqlite_record_api_usage(api, model, prompt_tokens, completion_tokens)
     except Exception as exc:
         log.warning("record_api_usage failed: %s", exc)
+
+
+async def _pg_record_kb_feedback(incident_number: str, used: bool, edited: bool, notes: str) -> None:
+    try:
+        pool = await _get_pg_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO kb_feedback (ts, incident_number, used, edited, notes) VALUES ($1,$2,$3,$4,$5)",
+                time.time(), incident_number, used, edited, notes or "",
+            )
+    except Exception as exc:
+        log.warning("postgres kb_feedback write failed: %s", exc)
+
+
+def _sqlite_record_kb_feedback(incident_number: str, used: bool, edited: bool, notes: str) -> None:
+    try:
+        conn = _get_sqlite()
+        conn.execute(
+            "INSERT INTO kb_feedback (ts, incident_number, used, edited, notes) VALUES (?,?,?,?,?)",
+            (time.time(), incident_number, int(used), int(edited), notes or ""),
+        )
+        conn.commit()
+    except Exception as exc:
+        log.warning("sqlite kb_feedback write failed: %s", exc)
+
+
+async def record_kb_feedback(incident_number: str, used: bool, edited: bool = False, notes: str = "") -> None:
+    """Phase-1 usage signal (design doc §3): did the engineer use the drafted
+    recommendation? Never raises — analytics must not break the app."""
+    if _USE_POSTGRES and _pg_available:
+        await _pg_record_kb_feedback(incident_number, used, edited, notes)
+    else:
+        _sqlite_record_kb_feedback(incident_number, used, edited, notes)
+
 
 async def get_stats(since_hours: int = 24) -> dict:
     if _USE_POSTGRES and _pg_available:
