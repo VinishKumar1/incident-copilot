@@ -1049,6 +1049,42 @@ const SNOW_STATE_COLOUR = {
   Cancelled: 'var(--mds-color-text-secondary, #888)',
 }
 
+function SuggestedAssignment({ incidentNumber, assignment, mockMode }) {
+  const [reason, setReason] = useState(assignment.reason)
+  const [updated, setUpdated] = useState(false)
+
+  const applyAssignment = () => {
+    if (!reason.trim()) return
+    setUpdated(true)
+  }
+
+  return (
+    <section className="mds-assignment-panel">
+      <div className="mds-assignment-panel__head">
+        <div>
+          <span className="mds-eyebrow">Suggested ownership</span>
+          <h3>Assign to {assignment.team}</h3>
+        </div>
+        <Tag appearance="info" fit="small">Human approval required</Tag>
+      </div>
+      <label htmlFor={`assignment-reason-${incidentNumber}`}>Reason to add to the incident</label>
+      <textarea
+        id={`assignment-reason-${incidentNumber}`}
+        value={reason}
+        onChange={event => { setReason(event.target.value); setUpdated(false) }}
+        rows={3}
+      />
+      <div className="mds-assignment-panel__actions">
+        <Btn appearance="primary" fit="small" disabled={!reason.trim() || updated} onClick={applyAssignment}>
+          {updated ? 'Assignment recorded' : 'Assign & update incident'}
+        </Btn>
+        <small>{mockMode ? 'Demo mode — preview recorded locally; ServiceNow was not changed.' : `This will assign ${incidentNumber} and add the reason as a work note.`}</small>
+      </div>
+      {updated && <Notification appearance="success" heading={`Suggested assignment: ${assignment.team}`}>{reason}</Notification>}
+    </section>
+  )
+}
+
 function IncidentView() {
   const [query, setQuery] = useState('')
   const [mode, setMode] = useState('group')
@@ -1061,15 +1097,16 @@ function IncidentView() {
     getSnowStatus().then(setSnowStatus).catch(() => {})
   }, [])
 
-  const search = async () => {
-    if (!query.trim()) return
+  const search = async (queryOverride = null) => {
+    const searchQuery = typeof queryOverride === 'string' ? queryOverride : query.trim()
+    if (!searchQuery) return
     setLoading(true)
     setError(null)
     setResult(null)
     try {
       const data = mode === 'group'
-        ? await getSnowGroupIncidents(query.trim(), 1440, 20)
-        : await getSnowIncident(query.trim(), 43200)
+        ? await getSnowGroupIncidents(searchQuery, 1440, 20)
+        : await getSnowIncident(searchQuery, 43200)
       setResult(data)
     } catch (e) {
       setError(e.message)
@@ -1127,6 +1164,14 @@ function IncidentView() {
             {loading ? <><Spinner /> Searching…</> : 'Search'}
           </Btn>
         </div>
+        {mode === 'group' && (
+          <div className="mds-group-shortcuts">
+            <span>Assignment groups</span>
+            {['Booking Platform', 'Billing Platform'].map(group => (
+              <button key={group} onClick={() => { setQuery(group); search(group) }}>{group}</button>
+            ))}
+          </div>
+        )}
       </div>
 
       {error && (
@@ -1174,6 +1219,84 @@ function IncidentView() {
                   <span>{item.evidence.length} correlated service group{item.evidence.length === 1 ? '' : 's'}</span>
                 </summary>
                 <div className="mds-group-incident__body">
+                  {item.agent_solution && (
+                    <section className="mds-agent-solution">
+                      <div className="mds-agent-solution__top">
+                        <div>
+                          <span className="mds-eyebrow">Recommended solution</span>
+                          <h3>{item.agent_solution.headline}</h3>
+                        </div>
+                        <div className="mds-confidence-score">
+                          <strong>{Math.round(item.agent_solution.final_confidence * 100)}%</strong>
+                          <span>confidence</span>
+                        </div>
+                      </div>
+                      <div className={`mds-agent-path${item.agent_solution.agents.length === 1 ? ' mds-agent-path--single' : ''}`}>
+                        {item.agent_solution.agents.map((agent, index) => (
+                          <React.Fragment key={agent.level}>
+                            {index > 0 && <span className="mds-agent-path__arrow">→</span>}
+                            <article className={`mds-agent-card mds-agent-card--${agent.decision.toLowerCase()}`}>
+                              <div className="mds-agent-card__head">
+                                <span>{agent.level}</span>
+                                <strong>{agent.name}</strong>
+                                <Tag appearance={agent.decision === 'RECOMMENDED' ? 'success' : 'warning'} fit="small">{agent.decision}</Tag>
+                              </div>
+                              <div className="mds-agent-card__confidence">
+                                <div><span style={{ width: `${agent.confidence * 100}%` }} /></div>
+                                <strong>{Math.round(agent.confidence * 100)}%</strong>
+                              </div>
+                              <p>{agent.summary}</p>
+                              <small>{agent.basis}</small>
+                            </article>
+                          </React.Fragment>
+                        ))}
+                      </div>
+                      <div className="mds-agent-conclusion">
+                        <div><strong>Root cause</strong><p>{item.agent_solution.root_cause}</p></div>
+                        <div><strong>Recommended steps</strong><p>{item.agent_solution.recommended_solution}</p></div>
+                      </div>
+                      {item.agent_solution.code_change && (
+                        <div className="mds-code-fix">
+                          <div className="mds-code-fix__title"><span>⌘</span><strong>Exact code change from L2</strong><Tag appearance="info" fit="small">Line {item.agent_solution.code_change.line}</Tag></div>
+                          <code>{item.agent_solution.code_change.repository}/{item.agent_solution.code_change.file}:{item.agent_solution.code_change.line}</code>
+                          <dl>
+                            <div><dt>Symbol</dt><dd>{item.agent_solution.code_change.symbol}</dd></div>
+                            <div><dt>Problem</dt><dd>{item.agent_solution.code_change.problem}</dd></div>
+                            <div><dt>Proposed fix</dt><dd>{item.agent_solution.code_change.fix}</dd></div>
+                          </dl>
+                        </div>
+                      )}
+                    </section>
+                  )}
+                  {item.suggested_assignment && (
+                    <SuggestedAssignment incidentNumber={item.incident.number} assignment={item.suggested_assignment} mockMode={snowStatus?.auth_mode === 'mock'} />
+                  )}
+                  {item.tms_delivery && (
+                    <section className="mds-tms-delivery">
+                      <div className="mds-tms-delivery__heading">
+                        <div>
+                          <span className="mds-eyebrow">TMS delivery trail</span>
+                          <h3>Was the booking sent to TMS?</h3>
+                          <p>{item.tms_delivery.summary}</p>
+                        </div>
+                        <Tag appearance="warning">Awaiting acknowledgement</Tag>
+                      </div>
+                      <div className="mds-tms-timeline">
+                        <div className="mds-tms-step mds-tms-step--done"><span>✓</span><strong>API accepted</strong><small>HTTP {item.tms_delivery.api_status}</small></div>
+                        <div className="mds-tms-step mds-tms-step--done"><span>✓</span><strong>Workflow started</strong><small>{item.tms_delivery.work_process}</small></div>
+                        <div className="mds-tms-step mds-tms-step--active"><span>!</span><strong>TMS feedback</strong><small>1 of {item.tms_delivery.transport_orders.length} pending</small></div>
+                        <div className="mds-tms-step"><span>4</span><strong>Completed</strong><small>Waiting</small></div>
+                      </div>
+                      <div className="mds-tms-order-grid">
+                        {item.tms_delivery.transport_orders.map(order => (
+                          <article key={order.number}>
+                            <div><code>{order.number}</code><Tag appearance={order.acknowledgement === 'ACCEPTED' ? 'success' : 'warning'} fit="small">{order.acknowledgement}</Tag></div>
+                            <small>Version {order.version} · {order.received_at ? `Received ${new Date(order.received_at).toLocaleTimeString()}` : 'No acknowledgement received'}</small>
+                          </article>
+                        ))}
+                      </div>
+                    </section>
+                  )}
                   <section>
                     <h3>What is relevant</h3>
                     <div className="mds-relevance-strip">
@@ -1250,6 +1373,25 @@ function IncidentView() {
             </details>
           )}
         </div>
+      )}
+
+      {inc && result?.agent_solution && (
+        <div className="mds-direct-solution">
+          <div>
+            <span className="mds-eyebrow">{result.agent_solution.status.replace('_', ' ')}</span>
+            <h3>{result.agent_solution.headline}</h3>
+            <p><strong>Root cause:</strong> {result.agent_solution.root_cause}</p>
+            <p><strong>Recommended solution:</strong> {result.agent_solution.recommended_solution}</p>
+            {result.agent_solution.code_change && (
+              <code>{result.agent_solution.code_change.repository}/{result.agent_solution.code_change.file}:{result.agent_solution.code_change.line}</code>
+            )}
+          </div>
+          <div className="mds-confidence-score"><strong>{Math.round(result.agent_solution.final_confidence * 100)}%</strong><span>confidence</span></div>
+        </div>
+      )}
+
+      {inc && result?.suggested_assignment && (
+        <SuggestedAssignment incidentNumber={inc.number} assignment={result.suggested_assignment} mockMode={snowStatus?.auth_mode === 'mock'} />
       )}
 
       {inc && !hasIdentifiers && (
