@@ -1103,11 +1103,11 @@ function IncidentView() {
           {snowStatus && !snowStatus.configured && (
             <Tag appearance="warning" fit="small" style={{ marginLeft: 8 }}>SNOW not configured</Tag>
           )}
-          {snowStatus?.configured && snowStatus?.auth_mode === 'oauth_ropc' && (
-            <Tag appearance="success" fit="small" style={{ marginLeft: 8 }}>OAuth ✓</Tag>
+          {snowStatus?.auth_mode === 'mock' && (
+            <Tag appearance="warning" fit="small">Demo data</Tag>
           )}
-          {snowStatus?.configured && snowStatus?.auth_mode === 'basic' && (
-            <Tag appearance="neutral" fit="small" style={{ marginLeft: 8 }}>Basic Auth</Tag>
+          {snowStatus?.configured && snowStatus?.auth_mode === 'client_credentials' && (
+            <Tag appearance="success" fit="small">ServiceNow connected</Tag>
           )}
         </div>
         <div className="mds-incident-search-bar__inputs">

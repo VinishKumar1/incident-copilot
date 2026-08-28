@@ -154,6 +154,7 @@ def test_mark_used_records_feedback(client, monkeypatch):
 
 
 def test_group_search_correlates_logs_and_suggests_actions(client, monkeypatch):
+    monkeypatch.setattr(snow.settings, "use_mock", False)
     class FakeSnowClient:
         configured = True
 
@@ -192,9 +193,32 @@ def test_group_search_correlates_logs_and_suggests_actions(client, monkeypatch):
 
 
 def test_group_search_rejects_encoded_query_operators(client, monkeypatch):
+    monkeypatch.setattr(snow.settings, "use_mock", False)
     class FakeSnowClient:
         configured = True
 
     monkeypatch.setattr(snow, "snow_client", FakeSnowClient())
     response = client.get("/api/snow/group?group=Platform%5EORactive%3Dfalse")
     assert response.status_code == 400
+
+
+def test_group_search_returns_demo_incidents_in_mock_mode(client, monkeypatch):
+    monkeypatch.setattr(snow.settings, "use_mock", True)
+    response = client.get("/api/snow/group?group=Booking%20Platform&minutes=1440")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["incident_count"] == 4
+    assert payload["relevant_count"] == 3
+    assert payload["incidents"][0]["evidence"][0]["service"] == "booking-intake"
+    assert payload["incidents"][0]["actions"]
+
+
+def test_incident_search_returns_demo_incident_in_mock_mode(client, monkeypatch):
+    monkeypatch.setattr(snow.settings, "use_mock", True)
+    response = client.get("/api/snow/incident/INC0098421")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["incident"]["number"] == "INC0098421"
+    assert "MHXHTFLMG9P9" in payload["loki_results"]

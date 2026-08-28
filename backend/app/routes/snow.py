@@ -10,8 +10,10 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from ..analytics import record_kb_feedback
 from ..auth import require_user, require_admin
+from ..config import settings
 from ..l1_agent import l1_lookup
 from ..llm import llm_client
+from ..mock_snow import mock_group, mock_incident
 from ..models import MarkUsedRequest, Recommendation
 from ..snow import _clean_incident, extract_identifiers, snow_client
 from ..source import search_key
@@ -77,15 +79,16 @@ async def _lookup_incident_and_logs(number: str, minutes: int) -> dict[str, Any]
     """Shared by /incident/{number} and /incident/{number}/analyze: fetch the incident,
     extract business identifiers, and cross-search logs for each one. Same validation
     and error handling get_incident always had — behavior there is unchanged."""
-    if not snow_client.configured:
-        raise HTTPException(
-            status_code=503,
-            detail="ServiceNow not configured — set SNOW_USERNAME and SNOW_PASSWORD",
-        )
-
     number = number.strip().upper()
     if not number.startswith("INC"):
         raise HTTPException(status_code=400, detail="Incident number must start with INC")
+    if settings.use_mock:
+        return mock_incident(number)
+    if not snow_client.configured:
+        raise HTTPException(
+            status_code=503,
+            detail="ServiceNow not configured — set SNOW_CLIENT_ID and SNOW_CLIENT_SECRET",
+        )
 
     try:
         result = await snow_client.get_incident_with_identifiers(number)
@@ -136,14 +139,17 @@ async def get_incident(number: str, minutes: int = 43200) -> dict[str, Any]:
 @router.get("/group", dependencies=[Depends(require_admin)])
 async def get_group_incidents(group: str, minutes: int = 1440, limit: int = 20) -> dict[str, Any]:
     """List active incidents for an assignment group and correlate each with log evidence."""
-    if not snow_client.configured:
-        raise HTTPException(status_code=503, detail="ServiceNow not configured")
     group = group.strip()
     if len(group) < 2:
         raise HTTPException(status_code=400, detail="group must be at least 2 characters")
     if not re.fullmatch(r"[\w .&/()-]+", group):
         raise HTTPException(status_code=400, detail="group contains unsupported characters")
     minutes = max(1, min(minutes, 43200))
+    limit = max(1, min(limit, 50))
+    if settings.use_mock:
+        return mock_group(group, minutes, limit, _feasible_actions)
+    if not snow_client.configured:
+        raise HTTPException(status_code=503, detail="ServiceNow not configured")
 
     try:
         records = await snow_client.list_incidents_by_group(group, limit)
@@ -285,7 +291,7 @@ async def mark_used(number: str, body: MarkUsedRequest) -> dict[str, Any]:
 async def snow_status() -> dict[str, Any]:
     """Returns whether ServiceNow is configured."""
     return {
-        "configured": snow_client.configured,
-        "auth_mode": "client_credentials" if snow_client.configured else "none",
-        "instance_url": snow_client._base if snow_client.configured else None,
+        "configured": settings.use_mock or snow_client.configured,
+        "auth_mode": "mock" if settings.use_mock else "client_credentials" if snow_client.configured else "none",
+        "instance_url": "synthetic fixtures" if settings.use_mock else snow_client._base if snow_client.configured else None,
     }
