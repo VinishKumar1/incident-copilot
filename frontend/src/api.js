@@ -104,6 +104,9 @@ export const getSnowStatus = async () =>
 export const getSnowIncident = async (number, minutes = 360) =>
   fetch(`/api/snow/incident/${encodeURIComponent(number)}?minutes=${minutes}`, { headers: await authHeaders() }).then(json)
 
+export const getSnowGroupIncidents = async (group, minutes = 1440, limit = 20) =>
+  fetch(`/api/snow/group?group=${encodeURIComponent(group)}&minutes=${minutes}&limit=${limit}`, { headers: await authHeaders() }).then(json)
+
 export const sendChat = async (issueId, messages) =>
   fetch('/api/chat', {
     method: 'POST',

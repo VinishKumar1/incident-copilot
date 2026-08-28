@@ -7,6 +7,7 @@ import {
   setNamespace, matchCode, fixIt, searchKey, searchSummary,
   createAdhocIssue, getNamespaceSummary, getDashboard, getVibeUsage,
   getSnowStatus, getSnowIncident,
+  getSnowGroupIncidents,
 } from './api'
 
 const REFRESH_MS = 5000
@@ -1026,7 +1027,8 @@ const SNOW_STATE_COLOUR = {
 }
 
 function IncidentView() {
-  const [incidentNo, setIncidentNo] = useState('')
+  const [query, setQuery] = useState('')
+  const [mode, setMode] = useState('group')
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
@@ -1037,12 +1039,14 @@ function IncidentView() {
   }, [])
 
   const search = async () => {
-    if (!incidentNo.trim()) return
+    if (!query.trim()) return
     setLoading(true)
     setError(null)
     setResult(null)
     try {
-      const data = await getSnowIncident(incidentNo.trim(), 43200)
+      const data = mode === 'group'
+        ? await getSnowGroupIncidents(query.trim(), 1440, 20)
+        : await getSnowIncident(query.trim(), 43200)
       setResult(data)
     } catch (e) {
       setError(e.message)
@@ -1054,6 +1058,7 @@ function IncidentView() {
   const handleKey = (e) => { if (e.key === 'Enter') search() }
 
   const inc = result?.incident
+  const groupIncidents = result?.incidents || []
   const identifiers = result?.identifiers || {}
   const lokiResults = result?.loki_results || {}
   const hasIdentifiers = Object.keys(identifiers).length > 0
@@ -1063,7 +1068,7 @@ function IncidentView() {
       <div className="mds-incident-search-bar">
         <div className="mds-incident-search-bar__title">
           <span className="mds-incident-search-bar__icon">🎫</span>
-          <strong>ServiceNow Incident Search</strong>
+          <strong>Incident investigation</strong>
           {snowStatus && !snowStatus.configured && (
             <Tag appearance="warning" fit="small" style={{ marginLeft: 8 }}>SNOW not configured</Tag>
           )}
@@ -1075,15 +1080,19 @@ function IncidentView() {
           )}
         </div>
         <div className="mds-incident-search-bar__inputs">
+          <select className="mds-native-select mds-native-select--sm" value={mode} onChange={e => { setMode(e.target.value); setResult(null) }}>
+            <option value="group">Assignment group</option>
+            <option value="incident">Incident number</option>
+          </select>
           <input
             className="mds-search-input"
-            placeholder="Incident number e.g. INC0012345"
-            value={incidentNo}
-            onChange={e => setIncidentNo(e.target.value)}
+            placeholder={mode === 'group' ? 'Group name e.g. Booking Platform' : 'Incident number e.g. INC0012345'}
+            value={query}
+            onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKey}
             style={{ width: 260 }}
           />
-          <Btn variant="filled" appearance="primary" fit="small" disabled={loading || !incidentNo.trim()} onClick={search}>
+          <Btn variant="filled" appearance="primary" fit="small" disabled={loading || !query.trim()} onClick={search}>
             {loading ? <><Spinner /> Searching…</> : 'Search'}
           </Btn>
         </div>
@@ -1099,8 +1108,86 @@ function IncidentView() {
 
       {!result && !loading && !error && (
         <p className="mds-hint" style={{ padding: '2rem' }}>
-          Enter a ServiceNow incident number to fetch details and search Grafana logs for related identifiers (bookings, containers, BOLs, invoices).
+          Search an assignment group to see its active incidents, relevant log evidence and feasible response actions. You can also investigate one incident number.
         </p>
+      )}
+
+      {result?.group && (
+        <div className="mds-group-results">
+          <div className="mds-group-overview">
+            <div>
+              <span className="mds-eyebrow">Assignment group</span>
+              <h2>{result.group}</h2>
+              <p>Active incidents correlated against the last {result.minutes / 60} hours of logs.</p>
+            </div>
+            <div className="mds-group-metrics">
+              <div><strong>{result.incident_count}</strong><span>Active incidents</span></div>
+              <div><strong>{result.relevant_count}</strong><span>With evidence</span></div>
+              <div><strong>{result.incident_count - result.relevant_count}</strong><span>Need triage</span></div>
+            </div>
+          </div>
+
+          {groupIncidents.length === 0 && <Notification appearance="info" heading="No active incidents">No active incidents were found for this assignment group.</Notification>}
+          <div className="mds-group-incident-list">
+            {groupIncidents.map(item => (
+              <details className="mds-group-incident" key={item.incident.number} open={item.relevance === 'high'}>
+                <summary>
+                  <div className="mds-group-incident__identity">
+                    <code>{item.incident.number}</code>
+                    <Tag appearance={item.relevance === 'high' ? 'error' : 'neutral'} fit="small">
+                      {item.relevance === 'high' ? 'Relevant evidence' : 'Unconfirmed'}
+                    </Tag>
+                    <Tag appearance="neutral" fit="small">{item.incident.priority}</Tag>
+                  </div>
+                  <strong>{item.incident.short_description}</strong>
+                  <span>{item.evidence.length} correlated service group{item.evidence.length === 1 ? '' : 's'}</span>
+                </summary>
+                <div className="mds-group-incident__body">
+                  <section>
+                    <h3>What is relevant</h3>
+                    <div className="mds-relevance-strip">
+                      {Object.entries(item.identifiers).flatMap(([type, values]) => values.map(value => (
+                        <span key={`${type}-${value}`}><small>{ID_TYPE_LABELS[type] || type}</small><code>{value}</code></span>
+                      )))}
+                      {Object.keys(item.identifiers).length === 0 && <p className="mds-hint">No business identifiers were extracted from this incident.</p>}
+                    </div>
+                  </section>
+                  <section>
+                    <h3>Related log evidence</h3>
+                    {item.evidence.length === 0 && <p className="mds-hint">No related error logs found in this window.</p>}
+                    {item.evidence.map((group, index) => (
+                      <details className="mds-evidence-group" key={`${group.matched_identifier}-${group.service}-${index}`}>
+                        <summary>
+                          <strong>{group.service}</strong>
+                          <span>{group.namespace}</span>
+                          <Badge fit="small">{group.count}</Badge>
+                          <code>{group.matched_identifier}</code>
+                        </summary>
+                        <div className="mds-evidence-logs">
+                          {group.logs.map((log, logIndex) => (
+                            <div key={logIndex}><span>{log.ts || 'time unavailable'}</span><code>{log.message}</code></div>
+                          ))}
+                        </div>
+                      </details>
+                    ))}
+                  </section>
+                  <section>
+                    <h3>Feasible actions</h3>
+                    <div className="mds-action-grid">
+                      {item.actions.map((action, index) => (
+                        <article key={index}>
+                          <span className={`mds-action-kind mds-action-kind--${action.kind}`}>{action.kind}</span>
+                          <strong>{action.title}</strong>
+                          <p>{action.detail}</p>
+                        </article>
+                      ))}
+                    </div>
+                  </section>
+                </div>
+              </details>
+            ))}
+          </div>
+        </div>
       )}
 
       {inc && (
@@ -1148,8 +1235,15 @@ function IncidentView() {
           {Object.entries(identifiers).map(([type, values]) =>
             values.map(val => {
               const res = lokiResults[val]
-              const issues = res?.issues || []
-              const nsCount = res?.namespaces?.length || 0
+              const serviceGroups = [...(res?.services || []), ...(res?.trace_issues || [])]
+              const issues = serviceGroups.flatMap(group =>
+                (group.problems || []).map(log => ({
+                  namespace: log.namespace || group.namespace,
+                  service: log.service || group.service,
+                  text: log.message || '',
+                }))
+              )
+              const nsCount = new Set(issues.map(issue => issue.namespace).filter(Boolean)).size
               const hasError = !!res?.error
               return (
                 <div key={`${type}-${val}`} className="mds-incident-id-block">

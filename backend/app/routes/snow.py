@@ -3,6 +3,7 @@ AI-assisted recommendation ready to paste into the incident as a work note."""
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -12,11 +13,64 @@ from ..auth import require_user, require_admin
 from ..l1_agent import l1_lookup
 from ..llm import llm_client
 from ..models import MarkUsedRequest, Recommendation
-from ..snow import snow_client
+from ..snow import _clean_incident, extract_identifiers, snow_client
 from ..source import search_key
 from ..websearch import web_search_client
 
 router = APIRouter(prefix="/api/snow", tags=["snow"])
+
+
+def _log_groups(search_result: dict[str, Any]) -> list[dict[str, Any]]:
+    """Normalize direct and trace-correlated search results into one evidence list."""
+    groups = []
+    for source, services in (
+        ("identifier", search_result.get("services", [])),
+        ("trace", search_result.get("trace_issues", [])),
+    ):
+        for service in services:
+            matches = service.get("problems", [])
+            if matches:
+                groups.append({
+                    "service": service.get("service", "unknown"),
+                    "namespace": service.get("namespace", ""),
+                    "source": source,
+                    "count": service.get("problem_count", len(matches)),
+                    "logs": matches,
+                })
+    return groups
+
+
+def _feasible_actions(incident: dict[str, Any], evidence: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """Create conservative, human-reviewed actions from the evidence we actually found."""
+    text = " ".join(
+        log.get("message", "")
+        for group in evidence
+        for log in group.get("logs", [])
+    ).lower()
+    actions: list[dict[str, str]] = []
+
+    def add(title: str, detail: str, kind: str = "investigate") -> None:
+        if title not in {item["title"] for item in actions}:
+            actions.append({"title": title, "detail": detail, "kind": kind})
+
+    if any(term in text for term in ("timeout", "timed out", "connection refused")):
+        add("Check the downstream dependency", "Validate endpoint health, latency and recent deploys before retrying traffic.", "mitigate")
+    if any(term in text for term in ("access denied", "unauthorized", "forbidden", "401", "403")):
+        add("Validate access and credentials", "Check workload identity, secret rotation and resource policy; do not broaden permissions without review.", "mitigate")
+    if any(term in text for term in ("deadlock", "connection pool", "hikaripool", "too many connections")):
+        add("Inspect database pressure", "Review active connections, slow transactions and lock contention before changing pool limits.", "mitigate")
+    if any(term in text for term in ("outofmemory", "heap space", "oom")):
+        add("Stabilize the affected workload", "Inspect memory growth and recent changes; consider a controlled restart only after preserving diagnostics.", "mitigate")
+    if any(term in text for term in ("exception", "nullpointer", "traceback", "panic")):
+        add("Trace the failing code path", "Use the correlated service, timestamp and trace ID to locate the failing request and owning code.")
+    if evidence:
+        add("Confirm impact and correlation", "Compare the incident timeline with the relevant log evidence and rule out coincidental errors.")
+    else:
+        add("Broaden the evidence window", "No related error logs were found; verify identifiers and search a wider time range.")
+    add("Update the incident", "Record evidence, owner, mitigation and the next checkpoint in ServiceNow.", "communicate")
+    if incident.get("priority") in {"Critical", "High"}:
+        add("Engage the owning team", "Notify the service owner with the incident number and strongest correlated evidence.", "communicate")
+    return actions[:5]
 
 
 async def _lookup_incident_and_logs(number: str, minutes: int) -> dict[str, Any]:
@@ -77,6 +131,60 @@ async def get_incident(number: str, minutes: int = 43200) -> dict[str, Any]:
     """
     data = await _lookup_incident_and_logs(number, minutes)
     return {**data, "minutes": minutes}
+
+
+@router.get("/group", dependencies=[Depends(require_admin)])
+async def get_group_incidents(group: str, minutes: int = 1440, limit: int = 20) -> dict[str, Any]:
+    """List active incidents for an assignment group and correlate each with log evidence."""
+    if not snow_client.configured:
+        raise HTTPException(status_code=503, detail="ServiceNow not configured")
+    group = group.strip()
+    if len(group) < 2:
+        raise HTTPException(status_code=400, detail="group must be at least 2 characters")
+    if not re.fullmatch(r"[\w .&/()-]+", group):
+        raise HTTPException(status_code=400, detail="group contains unsupported characters")
+    minutes = max(1, min(minutes, 43200))
+
+    try:
+        records = await snow_client.list_incidents_by_group(group, limit)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"ServiceNow error: {exc}")
+
+    semaphore = asyncio.Semaphore(5)
+
+    async def enrich(record: dict[str, Any]) -> dict[str, Any]:
+        incident = _clean_incident(record)
+        identifiers = extract_identifiers(record)
+        searches: dict[str, Any] = {}
+        for key in list(dict.fromkeys(v for values in identifiers.values() for v in values))[:10]:
+            async with semaphore:
+                try:
+                    searches[key] = await search_key(key, minutes)
+                except Exception as exc:
+                    searches[key] = {"error": str(exc), "services": [], "trace_issues": []}
+        evidence = [
+            {**item, "matched_identifier": key}
+            for key, result in searches.items()
+            for item in _log_groups(result)
+        ]
+        evidence.sort(key=lambda item: item["count"], reverse=True)
+        return {
+            "incident": incident,
+            "identifiers": identifiers,
+            "evidence": evidence,
+            "relevance": "high" if evidence else "unconfirmed",
+            "actions": _feasible_actions(incident, evidence),
+        }
+
+    incidents = await asyncio.gather(*(enrich(record) for record in records))
+    relevant = sum(item["relevance"] == "high" for item in incidents)
+    return {
+        "group": group,
+        "minutes": minutes,
+        "incident_count": len(incidents),
+        "relevant_count": relevant,
+        "incidents": incidents,
+    }
 
 
 def _pattern_text(incident: dict, loki_results: dict) -> str:

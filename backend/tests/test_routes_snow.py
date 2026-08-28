@@ -151,3 +151,50 @@ def test_mark_used_records_feedback(client, monkeypatch):
     assert response.status_code == 200
     assert response.json() == {"ok": True}
     assert calls == [("INC0012345", True, True, "adjusted the timeout value")]
+
+
+def test_group_search_correlates_logs_and_suggests_actions(client, monkeypatch):
+    class FakeSnowClient:
+        configured = True
+
+        async def list_incidents_by_group(self, group, limit):
+            assert (group, limit) == ("Booking Platform", 10)
+            return [{
+                "number": "INC0099999",
+                "short_description": "Booking MHXHTFLMG9P9 timed out",
+                "description": "Connection pool exhausted",
+                "state": "1",
+                "priority": "2",
+                "assignment_group": "Booking Platform",
+            }]
+
+    async def fake_search(key, minutes):
+        assert key == "MHXHTFLMG9P9"
+        return {"services": [{
+            "service": "booking-intake",
+            "namespace": "telikos",
+            "problem_count": 2,
+            "problems": [{"ts": "2026-08-28T08:00:00Z", "message": "ERROR HikariPool connection pool exhausted"}],
+        }]}
+
+    monkeypatch.setattr(snow, "snow_client", FakeSnowClient())
+    monkeypatch.setattr(snow, "search_key", fake_search)
+
+    response = client.get("/api/snow/group?group=Booking%20Platform&minutes=60&limit=10")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["incident_count"] == 1
+    assert payload["relevant_count"] == 1
+    item = payload["incidents"][0]
+    assert item["evidence"][0]["service"] == "booking-intake"
+    assert any(action["title"] == "Inspect database pressure" for action in item["actions"])
+
+
+def test_group_search_rejects_encoded_query_operators(client, monkeypatch):
+    class FakeSnowClient:
+        configured = True
+
+    monkeypatch.setattr(snow, "snow_client", FakeSnowClient())
+    response = client.get("/api/snow/group?group=Platform%5EORactive%3Dfalse")
+    assert response.status_code == 400

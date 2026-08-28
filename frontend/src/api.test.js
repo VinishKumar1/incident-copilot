@@ -49,6 +49,7 @@ describe('api helpers', () => {
       () => api.getNamespaceSummary(true),
       () => api.getDashboard(12),
       () => api.getVibeUsage(),
+      () => api.getSnowGroupIncidents('Booking Platform', 60, 10),
       () => api.sendChat('issue-1', [{ role: 'user', content: 'help' }]),
     ]
 
@@ -86,7 +87,8 @@ describe('api helpers', () => {
     expect(fetch).toHaveBeenNthCalledWith(11, '/api/summary?refresh=true', { headers: { Authorization: 'Bearer id-token' } })
     expect(fetch).toHaveBeenNthCalledWith(12, '/api/analytics?hours=12', { headers: { Authorization: 'Bearer id-token' } })
     expect(fetch).toHaveBeenNthCalledWith(13, '/api/analytics/vibe-usage', { headers: { Authorization: 'Bearer id-token' } })
-    expect(fetch).toHaveBeenNthCalledWith(14, '/api/chat', {
+    expect(fetch).toHaveBeenNthCalledWith(14, '/api/snow/group?group=Booking%20Platform&minutes=60&limit=10', { headers: { Authorization: 'Bearer id-token' } })
+    expect(fetch).toHaveBeenNthCalledWith(15, '/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer id-token' },
       body: JSON.stringify({ issue_id: 'issue-1', messages: [{ role: 'user', content: 'help' }] }),

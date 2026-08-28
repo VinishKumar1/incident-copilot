@@ -114,6 +114,26 @@ class SnowClient:
             "identifiers": identifiers,
         }
 
+    async def list_incidents_by_group(self, group: str, limit: int = 20) -> list[dict[str, Any]]:
+        """Return the most recently updated active incidents assigned to a group."""
+        url = f"{self._base}/api/now/table/incident"
+        params = {
+            "sysparm_query": f"assignment_group.name={group}^active=true^ORDERBYDESCsys_updated_on",
+            "sysparm_limit": max(1, min(limit, 50)),
+            "sysparm_display_value": "true",
+            "sysparm_fields": ",".join(
+                ["number", "sys_id", "short_description", "description", "state",
+                 "priority", "urgency", "impact", "opened_at", "resolved_at",
+                 "caller_id", "assignment_group", "work_notes", "comments",
+                 "close_notes", "u_business_impact", "category", "subcategory"]
+            ),
+        }
+        headers = await self._auth_headers()
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.get(url, params=params, headers=headers)
+            resp.raise_for_status()
+            return resp.json().get("result", [])
+
 
 def extract_identifiers(incident: dict[str, Any]) -> dict[str, list[str]]:
     """Extract business identifiers (booking, BOL, container, etc.) from incident fields."""
