@@ -78,6 +78,19 @@ class Settings(BaseSettings):
     snow_username: str = ""
     snow_password: str = ""
 
+    # Knowledge base (RAG) — pgvector when DATABASE_URL is set, SQLite fallback otherwise
+    embedding_model: str = "text-embedding-3-small"
+    kb_confidence_threshold: float = 0.85  # cosine similarity; below this, L1 defers to L2/LLM
+
+    # Approved web search (Tavily) — used by the incident-analysis fallback when the
+    # knowledge base has no confident match. Domains outside the allowlist are never searched.
+    tavily_api_key: str = ""
+    web_search_allowed_domains: str = ""  # comma-separated, e.g. "kubernetes.io,spring.io"
+
+    @property
+    def web_search_allowed_domain_list(self) -> List[str]:
+        return [d.strip() for d in self.web_search_allowed_domains.split(",") if d.strip()]
+
     # Server
     cors_origins: str = "http://localhost:5173"
 

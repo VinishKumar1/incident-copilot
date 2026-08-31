@@ -7,6 +7,7 @@ import {
   setNamespace, matchCode, fixIt, searchKey, searchSummary,
   createAdhocIssue, getNamespaceSummary, getDashboard, getVibeUsage,
   getSnowStatus, getSnowIncident,
+  getSnowGroupIncidents,
 } from './api'
 
 const REFRESH_MS = 5000
@@ -138,11 +139,9 @@ function FreshnessPill({ ts }) {
 // ─── Tab bar (styled with MDS tokens, native React click handlers) ───────────
 
 const TABS = [
-  { value: 'issues',   label: 'Live Issues' },
-  { value: 'summary',  label: '📋 Summary' },
-  { value: 'search',   label: '🔎 Search by Key' },
-  { value: 'incident', label: '🎫 Incident Search' },
-  { value: 'dashboard',label: '📊 Dashboard' },
+  { value: 'search',   label: 'Search by Key', icon: '⌕' },
+  { value: 'incident', label: 'Incident Search', icon: '◎' },
+  { value: 'dashboard',label: 'Dashboard', icon: '▦' },
 ]
 
 function TabBar({ value, onChange, tabs = TABS }) {
@@ -156,9 +155,23 @@ function TabBar({ value, onChange, tabs = TABS }) {
           className={`mds-tab${value === t.value ? ' mds-tab--active' : ''}`}
           onClick={() => onChange(t.value)}
         >
+          <span className="mds-tab__icon" aria-hidden="true">{t.icon}</span>
           {t.label}
         </button>
       ))}
+    </div>
+  )
+}
+
+function PageIntro({ eyebrow, title, description, children }) {
+  return (
+    <div className="mds-page-intro">
+      <div>
+        <span className="mds-page-intro__eyebrow">{eyebrow}</span>
+        <h1>{title}</h1>
+        <p>{description}</p>
+      </div>
+      {children && <div className="mds-page-intro__aside">{children}</div>}
     </div>
   )
 }
@@ -210,7 +223,7 @@ function Header({ status, namespaces, onChangeNs, switching, ssoEnabled }) {
           <polygon points="12,1 14.2,7.5 20.6,5.1 16.9,10.9 22.7,14.5 15.9,15.1 16.8,21.9 12,17 7.2,21.9 8.1,15.1 1.3,14.5 7.1,10.9 3.4,5.1 9.8,7.5" />
         </svg>
         <span className="mds-header__wordmark">MAERSK</span>
-        <span className="mds-header__product">First Responder</span>
+        <span className="mds-header__product">Incident Handler</span>
       </div>
 
       {status && (
@@ -790,7 +803,16 @@ function SearchView() {
 
   return (
     <div className="mds-search-view">
+      <PageIntro
+        eyebrow="Evidence discovery"
+        title="Follow an incident across services"
+        description="Start with a booking, container, bill of lading, invoice or trace ID. Incident Handler connects the matching logs and highlights the failures that matter."
+      >
+        <div className="mds-page-intro__signal"><span /> Searches all monitored services</div>
+        <div className="mds-page-intro__signal"><span /> Correlates downstream traces</div>
+      </PageIntro>
       <form className="mds-search-bar" onSubmit={(e) => { e.preventDefault(); doSearch() }}>
+        <span className="mds-search-bar__icon" aria-hidden="true">⌕</span>
         <input
           className="mds-text-input mds-text-input--grow"
           value={key}
@@ -798,7 +820,9 @@ function SearchView() {
           placeholder="Search a key — booking #, container #, BOL #, or trace id…"
           onChange={(e) => setKey(e.target.value)}
         />
-        <Btn variant="filled" appearance="primary" disabled={loading} type="submit">Search</Btn>
+        <Btn variant="filled" appearance="primary" disabled={loading || key.trim().length < 3} type="submit">
+          {loading ? <><Spinner /> Searching</> : 'Find evidence'}
+        </Btn>
       </form>
 
       {loading && (
@@ -952,7 +976,7 @@ function LoginPage() {
           </svg>
           <span>MAERSK</span>
         </div>
-        <h1 className="mds-login-title">First Responder</h1>
+        <h1 className="mds-login-title">Incident Handler</h1>
         <p className="mds-login-subtitle">Sign in with your Maersk account to continue</p>
         {error && <p className="mds-login-error">{error}</p>}
         <Btn
@@ -1025,8 +1049,45 @@ const SNOW_STATE_COLOUR = {
   Cancelled: 'var(--mds-color-text-secondary, #888)',
 }
 
+function SuggestedAssignment({ incidentNumber, assignment, mockMode }) {
+  const [reason, setReason] = useState(assignment.reason)
+  const [updated, setUpdated] = useState(false)
+
+  const applyAssignment = () => {
+    if (!reason.trim()) return
+    setUpdated(true)
+  }
+
+  return (
+    <section className="mds-assignment-panel">
+      <div className="mds-assignment-panel__head">
+        <div>
+          <span className="mds-eyebrow">Suggested ownership</span>
+          <h3>Assign to {assignment.team}</h3>
+        </div>
+        <Tag appearance="info" fit="small">Human approval required</Tag>
+      </div>
+      <label htmlFor={`assignment-reason-${incidentNumber}`}>Reason to add to the incident</label>
+      <textarea
+        id={`assignment-reason-${incidentNumber}`}
+        value={reason}
+        onChange={event => { setReason(event.target.value); setUpdated(false) }}
+        rows={3}
+      />
+      <div className="mds-assignment-panel__actions">
+        <Btn appearance="primary" fit="small" disabled={!reason.trim() || updated} onClick={applyAssignment}>
+          {updated ? 'Assignment recorded' : 'Assign & update incident'}
+        </Btn>
+        <small>{mockMode ? 'Demo mode — preview recorded locally; ServiceNow was not changed.' : `This will assign ${incidentNumber} and add the reason as a work note.`}</small>
+      </div>
+      {updated && <Notification appearance="success" heading={`Suggested assignment: ${assignment.team}`}>{reason}</Notification>}
+    </section>
+  )
+}
+
 function IncidentView() {
-  const [incidentNo, setIncidentNo] = useState('')
+  const [query, setQuery] = useState('')
+  const [mode, setMode] = useState('group')
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
@@ -1036,13 +1097,16 @@ function IncidentView() {
     getSnowStatus().then(setSnowStatus).catch(() => {})
   }, [])
 
-  const search = async () => {
-    if (!incidentNo.trim()) return
+  const search = async (queryOverride = null) => {
+    const searchQuery = typeof queryOverride === 'string' ? queryOverride : query.trim()
+    if (!searchQuery) return
     setLoading(true)
     setError(null)
     setResult(null)
     try {
-      const data = await getSnowIncident(incidentNo.trim(), 43200)
+      const data = mode === 'group'
+        ? await getSnowGroupIncidents(searchQuery, 1440, 20)
+        : await getSnowIncident(searchQuery, 43200)
       setResult(data)
     } catch (e) {
       setError(e.message)
@@ -1054,39 +1118,60 @@ function IncidentView() {
   const handleKey = (e) => { if (e.key === 'Enter') search() }
 
   const inc = result?.incident
+  const groupIncidents = result?.incidents || []
   const identifiers = result?.identifiers || {}
   const lokiResults = result?.loki_results || {}
   const hasIdentifiers = Object.keys(identifiers).length > 0
 
   return (
     <div className="mds-incident-view">
+      <PageIntro
+        eyebrow="Incident workspace"
+        title="Move from alert to action"
+        description="Bring together ServiceNow context, business identifiers, related logs and feasible response actions in one investigation."
+      >
+        <div className="mds-page-intro__signal"><span /> Evidence-backed relevance</div>
+        <div className="mds-page-intro__signal"><span /> Human-reviewed actions</div>
+      </PageIntro>
       <div className="mds-incident-search-bar">
         <div className="mds-incident-search-bar__title">
-          <span className="mds-incident-search-bar__icon">🎫</span>
-          <strong>ServiceNow Incident Search</strong>
+          <span className="mds-incident-search-bar__icon">◎</span>
+          <div><strong>Open an investigation</strong><small>Search a team queue or a specific incident</small></div>
           {snowStatus && !snowStatus.configured && (
             <Tag appearance="warning" fit="small" style={{ marginLeft: 8 }}>SNOW not configured</Tag>
           )}
-          {snowStatus?.configured && snowStatus?.auth_mode === 'oauth_ropc' && (
-            <Tag appearance="success" fit="small" style={{ marginLeft: 8 }}>OAuth ✓</Tag>
+          {snowStatus?.auth_mode === 'mock' && (
+            <Tag appearance="warning" fit="small">Demo data</Tag>
           )}
-          {snowStatus?.configured && snowStatus?.auth_mode === 'basic' && (
-            <Tag appearance="neutral" fit="small" style={{ marginLeft: 8 }}>Basic Auth</Tag>
+          {snowStatus?.configured && snowStatus?.auth_mode === 'client_credentials' && (
+            <Tag appearance="success" fit="small">ServiceNow connected</Tag>
           )}
         </div>
         <div className="mds-incident-search-bar__inputs">
+          <select className="mds-native-select mds-native-select--sm" value={mode} onChange={e => { setMode(e.target.value); setResult(null) }}>
+            <option value="group">Assignment group</option>
+            <option value="incident">Incident number</option>
+          </select>
           <input
             className="mds-search-input"
-            placeholder="Incident number e.g. INC0012345"
-            value={incidentNo}
-            onChange={e => setIncidentNo(e.target.value)}
+            placeholder={mode === 'group' ? 'Group name e.g. Booking Platform' : 'Incident number e.g. INC0012345'}
+            value={query}
+            onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKey}
             style={{ width: 260 }}
           />
-          <Btn variant="filled" appearance="primary" fit="small" disabled={loading || !incidentNo.trim()} onClick={search}>
+          <Btn variant="filled" appearance="primary" fit="small" disabled={loading || !query.trim()} onClick={search}>
             {loading ? <><Spinner /> Searching…</> : 'Search'}
           </Btn>
         </div>
+        {mode === 'group' && (
+          <div className="mds-group-shortcuts">
+            <span>Assignment groups</span>
+            {['Booking Platform', 'Billing Platform'].map(group => (
+              <button key={group} onClick={() => { setQuery(group); search(group) }}>{group}</button>
+            ))}
+          </div>
+        )}
       </div>
 
       {error && (
@@ -1099,8 +1184,164 @@ function IncidentView() {
 
       {!result && !loading && !error && (
         <p className="mds-hint" style={{ padding: '2rem' }}>
-          Enter a ServiceNow incident number to fetch details and search Grafana logs for related identifiers (bookings, containers, BOLs, invoices).
+          Search an assignment group to see its active incidents, relevant log evidence and feasible response actions. You can also investigate one incident number.
         </p>
+      )}
+
+      {result?.group && (
+        <div className="mds-group-results">
+          <div className="mds-group-overview">
+            <div>
+              <span className="mds-eyebrow">Assignment group</span>
+              <h2>{result.group}</h2>
+              <p>Active incidents correlated against the last {result.minutes / 60} hours of logs.</p>
+            </div>
+            <div className="mds-group-metrics">
+              <div><strong>{result.incident_count}</strong><span>Active incidents</span></div>
+              <div><strong>{result.relevant_count}</strong><span>With evidence</span></div>
+              <div><strong>{result.incident_count - result.relevant_count}</strong><span>Need triage</span></div>
+            </div>
+          </div>
+
+          {groupIncidents.length === 0 && <Notification appearance="info" heading="No active incidents">No active incidents were found for this assignment group.</Notification>}
+          <div className="mds-group-incident-list">
+            {groupIncidents.map(item => (
+              <details className="mds-group-incident" key={item.incident.number} open={item.relevance === 'high'}>
+                <summary>
+                  <div className="mds-group-incident__identity">
+                    <code>{item.incident.number}</code>
+                    <Tag appearance={item.relevance === 'high' ? 'error' : 'neutral'} fit="small">
+                      {item.relevance === 'high' ? 'Relevant evidence' : 'Unconfirmed'}
+                    </Tag>
+                    <Tag appearance="neutral" fit="small">{item.incident.priority}</Tag>
+                  </div>
+                  <strong>{item.incident.short_description}</strong>
+                  <span>{item.evidence.length} correlated service group{item.evidence.length === 1 ? '' : 's'}</span>
+                </summary>
+                <div className="mds-group-incident__body">
+                  {item.agent_solution && (
+                    <section className="mds-agent-solution">
+                      <div className="mds-agent-solution__top">
+                        <div>
+                          <span className="mds-eyebrow">Recommended solution</span>
+                          <h3>{item.agent_solution.headline}</h3>
+                        </div>
+                        <div className="mds-confidence-score">
+                          <strong>{Math.round(item.agent_solution.final_confidence * 100)}%</strong>
+                          <span>confidence</span>
+                        </div>
+                      </div>
+                      <div className={`mds-agent-path${item.agent_solution.agents.length === 1 ? ' mds-agent-path--single' : ''}`}>
+                        {item.agent_solution.agents.map((agent, index) => (
+                          <React.Fragment key={agent.level}>
+                            {index > 0 && <span className="mds-agent-path__arrow">→</span>}
+                            <article className={`mds-agent-card mds-agent-card--${agent.decision.toLowerCase()}`}>
+                              <div className="mds-agent-card__head">
+                                <span>{agent.level}</span>
+                                <strong>{agent.name}</strong>
+                                <Tag appearance={agent.decision === 'RECOMMENDED' ? 'success' : 'warning'} fit="small">{agent.decision}</Tag>
+                              </div>
+                              <div className="mds-agent-card__confidence">
+                                <div><span style={{ width: `${agent.confidence * 100}%` }} /></div>
+                                <strong>{Math.round(agent.confidence * 100)}%</strong>
+                              </div>
+                              <p>{agent.summary}</p>
+                              <small>{agent.basis}</small>
+                            </article>
+                          </React.Fragment>
+                        ))}
+                      </div>
+                      <div className="mds-agent-conclusion">
+                        <div><strong>Root cause</strong><p>{item.agent_solution.root_cause}</p></div>
+                        <div><strong>Recommended steps</strong><p>{item.agent_solution.recommended_solution}</p></div>
+                      </div>
+                      {item.agent_solution.code_change && (
+                        <div className="mds-code-fix">
+                          <div className="mds-code-fix__title"><span>⌘</span><strong>Exact code change from L2</strong><Tag appearance="info" fit="small">Line {item.agent_solution.code_change.line}</Tag></div>
+                          <code>{item.agent_solution.code_change.repository}/{item.agent_solution.code_change.file}:{item.agent_solution.code_change.line}</code>
+                          <dl>
+                            <div><dt>Symbol</dt><dd>{item.agent_solution.code_change.symbol}</dd></div>
+                            <div><dt>Problem</dt><dd>{item.agent_solution.code_change.problem}</dd></div>
+                            <div><dt>Proposed fix</dt><dd>{item.agent_solution.code_change.fix}</dd></div>
+                          </dl>
+                        </div>
+                      )}
+                    </section>
+                  )}
+                  {item.suggested_assignment && (
+                    <SuggestedAssignment incidentNumber={item.incident.number} assignment={item.suggested_assignment} mockMode={snowStatus?.auth_mode === 'mock'} />
+                  )}
+                  {item.tms_delivery && (
+                    <section className="mds-tms-delivery">
+                      <div className="mds-tms-delivery__heading">
+                        <div>
+                          <span className="mds-eyebrow">TMS delivery trail</span>
+                          <h3>Was the booking sent to TMS?</h3>
+                          <p>{item.tms_delivery.summary}</p>
+                        </div>
+                        <Tag appearance="warning">Awaiting acknowledgement</Tag>
+                      </div>
+                      <div className="mds-tms-timeline">
+                        <div className="mds-tms-step mds-tms-step--done"><span>✓</span><strong>API accepted</strong><small>HTTP {item.tms_delivery.api_status}</small></div>
+                        <div className="mds-tms-step mds-tms-step--done"><span>✓</span><strong>Workflow started</strong><small>{item.tms_delivery.work_process}</small></div>
+                        <div className="mds-tms-step mds-tms-step--active"><span>!</span><strong>TMS feedback</strong><small>1 of {item.tms_delivery.transport_orders.length} pending</small></div>
+                        <div className="mds-tms-step"><span>4</span><strong>Completed</strong><small>Waiting</small></div>
+                      </div>
+                      <div className="mds-tms-order-grid">
+                        {item.tms_delivery.transport_orders.map(order => (
+                          <article key={order.number}>
+                            <div><code>{order.number}</code><Tag appearance={order.acknowledgement === 'ACCEPTED' ? 'success' : 'warning'} fit="small">{order.acknowledgement}</Tag></div>
+                            <small>Version {order.version} · {order.received_at ? `Received ${new Date(order.received_at).toLocaleTimeString()}` : 'No acknowledgement received'}</small>
+                          </article>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+                  <section>
+                    <h3>What is relevant</h3>
+                    <div className="mds-relevance-strip">
+                      {Object.entries(item.identifiers).flatMap(([type, values]) => values.map(value => (
+                        <span key={`${type}-${value}`}><small>{ID_TYPE_LABELS[type] || type}</small><code>{value}</code></span>
+                      )))}
+                      {Object.keys(item.identifiers).length === 0 && <p className="mds-hint">No business identifiers were extracted from this incident.</p>}
+                    </div>
+                  </section>
+                  <section>
+                    <h3>Related log evidence</h3>
+                    {item.evidence.length === 0 && <p className="mds-hint">No related error logs found in this window.</p>}
+                    {item.evidence.map((group, index) => (
+                      <details className="mds-evidence-group" key={`${group.matched_identifier}-${group.service}-${index}`}>
+                        <summary>
+                          <strong>{group.service}</strong>
+                          <span>{group.namespace}</span>
+                          <Badge fit="small">{group.count}</Badge>
+                          <code>{group.matched_identifier}</code>
+                        </summary>
+                        <div className="mds-evidence-logs">
+                          {group.logs.map((log, logIndex) => (
+                            <div key={logIndex}><span>{log.ts || 'time unavailable'}</span><code>{log.message}</code></div>
+                          ))}
+                        </div>
+                      </details>
+                    ))}
+                  </section>
+                  <section>
+                    <h3>Feasible actions</h3>
+                    <div className="mds-action-grid">
+                      {item.actions.map((action, index) => (
+                        <article key={index}>
+                          <span className={`mds-action-kind mds-action-kind--${action.kind}`}>{action.kind}</span>
+                          <strong>{action.title}</strong>
+                          <p>{action.detail}</p>
+                        </article>
+                      ))}
+                    </div>
+                  </section>
+                </div>
+              </details>
+            ))}
+          </div>
+        </div>
       )}
 
       {inc && (
@@ -1134,6 +1375,25 @@ function IncidentView() {
         </div>
       )}
 
+      {inc && result?.agent_solution && (
+        <div className="mds-direct-solution">
+          <div>
+            <span className="mds-eyebrow">{result.agent_solution.status.replace('_', ' ')}</span>
+            <h3>{result.agent_solution.headline}</h3>
+            <p><strong>Root cause:</strong> {result.agent_solution.root_cause}</p>
+            <p><strong>Recommended solution:</strong> {result.agent_solution.recommended_solution}</p>
+            {result.agent_solution.code_change && (
+              <code>{result.agent_solution.code_change.repository}/{result.agent_solution.code_change.file}:{result.agent_solution.code_change.line}</code>
+            )}
+          </div>
+          <div className="mds-confidence-score"><strong>{Math.round(result.agent_solution.final_confidence * 100)}%</strong><span>confidence</span></div>
+        </div>
+      )}
+
+      {inc && result?.suggested_assignment && (
+        <SuggestedAssignment incidentNumber={inc.number} assignment={result.suggested_assignment} mockMode={snowStatus?.auth_mode === 'mock'} />
+      )}
+
       {inc && !hasIdentifiers && (
         <Notification appearance="warning" heading="No identifiers found">
           Could not extract any booking, container, BOL or invoice numbers from this incident. You can use Search by Key tab to search manually.
@@ -1148,8 +1408,15 @@ function IncidentView() {
           {Object.entries(identifiers).map(([type, values]) =>
             values.map(val => {
               const res = lokiResults[val]
-              const issues = res?.issues || []
-              const nsCount = res?.namespaces?.length || 0
+              const serviceGroups = [...(res?.services || []), ...(res?.trace_issues || [])]
+              const issues = serviceGroups.flatMap(group =>
+                (group.problems || []).map(log => ({
+                  namespace: log.namespace || group.namespace,
+                  service: log.service || group.service,
+                  text: log.message || '',
+                }))
+              )
+              const nsCount = new Set(issues.map(issue => issue.namespace).filter(Boolean)).size
               const hasError = !!res?.error
               return (
                 <div key={`${type}-${val}`} className="mds-incident-id-block">
@@ -1214,7 +1481,11 @@ function DashboardView() {
   return (
     <div className="mds-dashboard">
       <div className="mds-dashboard__toolbar">
-        <h2 className="mds-dashboard__title">Usage Dashboard</h2>
+        <div className="mds-dashboard__heading">
+          <span className="mds-page-intro__eyebrow">Incident operations</span>
+          <h2 className="mds-dashboard__title">Handling dashboard</h2>
+          <p>Investigation activity, evidence queries and AI-assisted analyses.</p>
+        </div>
         <select
           className="mds-native-select mds-native-select--sm"
           value={hours}
@@ -1281,22 +1552,20 @@ function DashboardView() {
       {data && (
         <>
           <div className="mds-stat-cards">
-            <StatCard label="Total Events"    value={data.total_events}      icon="📈" />
-            <StatCard label="Unique Users"    value={data.unique_users}      icon="👥" />
-            <StatCard label="Logins"          value={data.logins}            icon="🔑" />
-            <StatCard label="Searches"        value={data.searches}          icon="🔎" />
-            <StatCard label="Analyses"        value={data.analyses}          icon="🤖" />
-            <StatCard label="NS Changes"      value={data.namespace_changes} icon="🗂" />
+            <StatCard label="Evidence Searches" value={data.searches} icon="⌕" />
+            <StatCard label="Incident Analyses" value={data.analyses} icon="◎" />
+            <StatCard label="Active Handlers" value={data.unique_users} icon="◉" />
+            <StatCard label="Handling Actions" value={data.searches + data.analyses} icon="↗" />
           </div>
 
           <div className="mds-dashboard__row">
             <div className="mds-dashboard__panel">
-              <h3 className="mds-dashboard__panel-title">Hourly Activity (last 24 h)</h3>
+              <h3 className="mds-dashboard__panel-title">Handling activity · last 24 hours</h3>
               <ActivityBar hourly={data.hourly_activity} />
             </div>
 
             <div className="mds-dashboard__panel">
-              <h3 className="mds-dashboard__panel-title">Top Users</h3>
+              <h3 className="mds-dashboard__panel-title">Active incident handlers</h3>
               {data.top_users.length === 0
                 ? <p className="mds-hint">No data yet.</p>
                 : (
@@ -1318,14 +1587,14 @@ function DashboardView() {
             </div>
 
             <div className="mds-dashboard__panel">
-              <h3 className="mds-dashboard__panel-title">Action Breakdown</h3>
+              <h3 className="mds-dashboard__panel-title">Investigation actions</h3>
               {data.action_counts.length === 0
                 ? <p className="mds-hint">No data yet.</p>
                 : (
                   <table className="mds-table">
                     <thead><tr><th>Action</th><th>Count</th></tr></thead>
                     <tbody>
-                      {data.action_counts.map((a) => (
+                      {data.action_counts.filter((a) => ['search', 'analyze'].includes(a.action)).map((a) => (
                         <tr key={a.action}>
                           <td>{ACTION_LABELS[a.action] || a.action}</td>
                           <td>{a.cnt}</td>
@@ -1405,14 +1674,14 @@ function DashboardView() {
           </div>
 
           <div className="mds-dashboard__panel mds-dashboard__panel--full">
-            <h3 className="mds-dashboard__panel-title">Recent Activity</h3>
-            {data.recent_events.length === 0
+            <h3 className="mds-dashboard__panel-title">Recent incident-handling activity</h3>
+            {data.recent_events.filter((e) => ['search', 'analyze'].includes(e.action)).length === 0
               ? <p className="mds-hint">No events yet.</p>
               : (
                 <table className="mds-table">
                   <thead><tr><th>Time</th><th>User</th><th>Action</th><th>Detail</th></tr></thead>
                   <tbody>
-                    {data.recent_events.map((e, i) => (
+                    {data.recent_events.filter((e) => ['search', 'analyze'].includes(e.action)).map((e, i) => (
                       <tr key={i}>
                         <td className="mds-hint">{new Date(e.ts * 1000).toLocaleTimeString()}</td>
                         <td>{e.user_email}</td>
@@ -1433,145 +1702,56 @@ function DashboardView() {
 // ─── App root ─────────────────────────────────────────────────────────────────
 
 function AppShell({ ssoEnabled }) {
-  const [issues, setIssues] = useState([])
   const [status, setStatus] = useState(null)
-  const [selectedId, setSelectedId] = useState(null)
   const [namespaces, setNamespaces] = useState([])
   const [switching, setSwitching] = useState(false)
-  const [serviceFilter, setServiceFilter] = useState('all')
-  const [booted, setBooted] = useState(false)
-  const [tab, setTab] = useState('issues')
-  const [, setNow] = useState(0)
-
-  const refresh = () => {
-    listIssues().then((d) => { setIssues(d); setBooted(true) }).catch((e) => { console.error('listIssues failed:', e); setBooted(true) })
-    getStatus().then(setStatus).catch((e) => console.error('getStatus failed:', e))
-  }
+  const [tab, setTab] = useState('search')
 
   useEffect(() => {
-    refresh()
-    const t = setInterval(refresh, REFRESH_MS)
-    const tick = setInterval(() => setNow((n) => n + 1), 1000)
+    getStatus().then(setStatus).catch((e) => console.error('getStatus failed:', e))
     listNamespaces().then(async (nsList) => {
       setNamespaces(nsList)
-      // Restore previously selected namespace if still available.
-      // Must await setNamespace so the backend switches before we refresh status/issues —
-      // otherwise the racing getStatus() from the initial refresh() can overwrite the
-      // dropdown with the old namespace while the backend is already polling the new one.
       const saved = localStorage.getItem('tfr_namespace')
       if (saved && nsList.includes(saved)) {
         try {
           await setNamespace(saved)
           getStatus().then(setStatus).catch(() => {})
-          listIssues().then(setIssues).catch(() => {})
-        } catch { /* ignore — keep default namespace */ }
+        } catch { /* keep the default namespace */ }
       }
     }).catch((e) => console.error('listNamespaces failed:', e))
-    return () => { clearInterval(t); clearInterval(tick) }
   }, [])
-
-  const serviceCounts = issues.reduce((m, i) => ((m[i.service] = (m[i.service] || 0) + 1), m), {})
-  const services = Object.keys(serviceCounts).sort().map((name) => ({ name, count: serviceCounts[name] }))
-  const visibleIssues = serviceFilter === 'all' ? issues : issues.filter((i) => i.service === serviceFilter)
-
-  useEffect(() => {
-    if (serviceFilter !== 'all' && !issues.some((i) => i.service === serviceFilter)) setServiceFilter('all')
-  }, [issues, serviceFilter])
 
   const onChangeNs = async (ns) => {
     setSwitching(true)
-    setSelectedId(null)
-    setIssues([])
-    setServiceFilter('all')
     try {
       await setNamespace(ns)
       localStorage.setItem('tfr_namespace', ns)
       setStatus((s) => (s ? { ...s, namespace: ns } : s))
-      const d = await listIssues()
-      setIssues(d)
-      setBooted(true)
       getStatus().then(setStatus).catch(() => {})
     } catch { /* keep current view */ } finally {
       setSwitching(false)
     }
   }
 
-  const selected = issues.find((i) => i.id === selectedId) || null
+  const workspace = (isAdmin) => (
+    <div className="mds-app">
+      <Header status={status} namespaces={namespaces} onChangeNs={onChangeNs} switching={switching} ssoEnabled={ssoEnabled} />
+      <TabBar value={tab} onChange={setTab} tabs={isAdmin ? TABS : TABS.filter((item) => item.value === 'search')} />
+      <main className="mds-app__content mds-workspace">
+        {tab === 'search' && <SearchView />}
+        {tab === 'incident' && isAdmin && <IncidentView />}
+        {tab === 'dashboard' && isAdmin && <DashboardView />}
+      </main>
+    </div>
+  )
 
   if (!ssoEnabled) {
-    // No MsalProvider — render directly with full access (dev/no-auth mode)
-    const visibleTabs = TABS
-    return (
-    <div className="mds-app">
-      <Header status={status} namespaces={namespaces} onChangeNs={onChangeNs} switching={switching} ssoEnabled={false} />
-      <TabBar value={tab} onChange={setTab} tabs={visibleTabs} />
-      <div className="mds-app__content">
-        {tab === 'issues' && (
-          <div className="mds-main">
-            <IssueList issues={visibleIssues} selectedId={selectedId} onSelect={setSelectedId}
-              services={services} serviceFilter={serviceFilter} onChangeService={setServiceFilter}
-              booted={booted} loading={switching} />
-            <Detail issue={selected} />
-          </div>
-        )}
-        {tab === 'summary' && <div className="mds-main mds-main--single"><NamespaceSummary namespace={status?.namespace || ''} issues={issues} /></div>}
-        {tab === 'search'  && <div className="mds-main mds-main--single"><SearchView /></div>}
-        {tab === 'incident' && <div className="mds-main mds-main--single"><IncidentView /></div>}
-        {tab === 'dashboard' && <div className="mds-main mds-main--single"><DashboardView /></div>}
-      </div>
-    </div>
-    )
+    return workspace(true)
   }
 
   return (
     <AdminGate ssoEnabled={ssoEnabled}>
-      {(isAdmin) => {
-        const visibleTabs = isAdmin ? TABS : TABS.filter((t) => t.value !== 'dashboard' && t.value !== 'incident')
-        return (
-    <div className="mds-app">
-      <Header status={status} namespaces={namespaces} onChangeNs={onChangeNs} switching={switching} ssoEnabled={ssoEnabled} />
-      <TabBar value={tab} onChange={setTab} tabs={visibleTabs} />
-
-      <div className="mds-app__content">
-        {tab === 'issues' && (
-          <div className="mds-main">
-            <IssueList
-              issues={visibleIssues}
-              selectedId={selectedId}
-              onSelect={setSelectedId}
-              services={services}
-              serviceFilter={serviceFilter}
-              onChangeService={setServiceFilter}
-              booted={booted}
-              loading={switching}
-            />
-            <Detail issue={selected} />
-          </div>
-        )}
-        {tab === 'summary' && (
-          <div className="mds-main mds-main--single">
-            <NamespaceSummary namespace={status?.namespace || ''} issues={issues} />
-          </div>
-        )}
-        {tab === 'search' && (
-          <div className="mds-main mds-main--single">
-            <SearchView />
-          </div>
-        )}
-        {tab === 'incident' && isAdmin && (
-          <div className="mds-main mds-main--single">
-            <IncidentView />
-          </div>
-        )}
-        {tab === 'dashboard' && isAdmin && (
-          <div className="mds-main mds-main--single">
-            <DashboardView />
-          </div>
-        )}
-      </div>
-    </div>
-        )
-      }}
+      {(isAdmin) => workspace(isAdmin)}
     </AdminGate>
   )
 }

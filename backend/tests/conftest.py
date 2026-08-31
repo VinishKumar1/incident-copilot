@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 
 from app.auth import require_admin, require_user
 from app.models import AnalyzeResponse, Issue, NamespaceSummaryResponse
-from app.routes import analytics, issues
+from app.routes import analytics, issues, snow
 from app.state import runtime
 
 
@@ -113,6 +113,7 @@ def app_with_auth_overrides(monkeypatch, dummy_store):
     app = FastAPI()
     app.include_router(issues.router, dependencies=[Depends(require_user)])
     app.include_router(analytics.router, dependencies=[Depends(require_user)])
+    app.include_router(snow.router, dependencies=[Depends(require_user)])
     app.dependency_overrides[require_user] = allow_user
     app.dependency_overrides[require_admin] = allow_admin
     runtime.namespace = 'telikos-dev'
@@ -131,6 +132,7 @@ def auth_failure_app(monkeypatch, dummy_store):
     app = FastAPI()
     app.include_router(issues.router, dependencies=[Depends(require_user)])
     app.include_router(analytics.router, dependencies=[Depends(require_user)])
+    app.include_router(snow.router, dependencies=[Depends(require_user)])
     return app
 
 
