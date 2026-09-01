@@ -1081,6 +1081,9 @@ function BookingLifecycle({ lifecycle }) {
   if (!lifecycle) return null
   const pending = (lifecycle.transport_orders || []).filter(o => o.acknowledgement !== 'ACCEPTED').length
   const tagAppearance = lifecycle.stuck_at ? 'warning' : lifecycle.booking_status === 'FAILED' ? 'error' : 'success'
+  const cancel = lifecycle.cancellation
+  const cancelAppearance = cancel?.allowed === true ? 'success' : cancel?.allowed === false ? 'error' : 'warning'
+  const cancelLabel = cancel?.allowed === true ? 'Cancel allowed' : cancel?.allowed === false ? 'Cancel not allowed' : 'Cancel: insufficient data'
   return (
     <section className="mds-tms-delivery">
       <div className="mds-tms-delivery__heading">
@@ -1093,7 +1096,7 @@ function BookingLifecycle({ lifecycle }) {
       </div>
       <div className="mds-tms-timeline">
         {(lifecycle.steps || []).map(step => (
-          <div key={step.label} className={`mds-tms-step${step.state === 'done' ? ' mds-tms-step--done' : ''}${step.state === 'active' || step.state === 'failed' ? ' mds-tms-step--active' : ''}`}>
+          <div key={step.label} className={`mds-tms-step${step.state === 'done' ? ' mds-tms-step--done' : ''}${step.state === 'active' ? ' mds-tms-step--active' : ''}${step.state === 'failed' ? ' mds-tms-step--failed' : ''}`}>
             <span>{step.mark}</span>
             <strong>{step.label}</strong>
             <small>{step.detail}</small>
@@ -1115,6 +1118,21 @@ function BookingLifecycle({ lifecycle }) {
       )}
       {lifecycle.transport_orders?.length > 0 && pending > 0 && (
         <p className="mds-hint" style={{ marginTop: '0.75rem' }}>{pending} transport order{pending === 1 ? '' : 's'} still waiting on TMS feedback.</p>
+      )}
+      {cancel && (
+        <div className="mds-tms-cancel">
+          <div className="mds-tms-cancel__heading">
+            <strong>Cancellation check (P6 + P13)</strong>
+            <Tag appearance={cancelAppearance} fit="small">{cancelLabel}</Tag>
+          </div>
+          <ul>
+            <li>P6 executed: {cancel.p6?.executed == null ? 'unknown' : cancel.p6.executed ? 'yes — blocked' : 'no'}</li>
+            <li>P6 cargo facility date reached: {cancel.p6?.cargo_facility_date_reached == null ? 'unknown' : cancel.p6.cargo_facility_date_reached ? 'yes — blocked' : 'no'}</li>
+            <li>P13 any container executed: {cancel.p13?.any_container_executed == null ? 'unknown' : cancel.p13.any_container_executed ? 'yes — blocked' : 'no'}</li>
+            <li>P13 ETA passed: {cancel.p13?.eta_passed == null ? 'unknown' : cancel.p13.eta_passed ? 'yes — blocked' : 'no'}</li>
+          </ul>
+          {(cancel.notes || []).map(note => <p key={note} className="mds-hint">{note}</p>)}
+        </div>
       )}
     </section>
   )

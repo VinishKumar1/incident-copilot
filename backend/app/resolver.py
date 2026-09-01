@@ -79,6 +79,16 @@ def _heuristic_l1(lifecycle: Optional[dict[str, Any]], messages: list[str]) -> d
     )
 
 
+def _incident_history(incident: dict[str, Any], messages: list[str]) -> str:
+    """Text passed into lifecycle diagnosis (stands in for the future history service)."""
+    parts = [
+        incident.get("short_description") or "",
+        incident.get("description") or "",
+        *messages[:12],
+    ]
+    return "\n".join(p for p in parts if p)[:8000]
+
+
 def _pattern_text(incident: dict[str, Any], messages: list[str], lifecycle: Optional[dict[str, Any]]) -> str:
     parts = [
         incident.get("short_description") or "",
@@ -131,7 +141,8 @@ async def resolve_incident(
     number = (incident or {}).get("number") or ""
     messages = evidence_messages(evidence)
     booking_id = first_booking_id(identifiers)
-    lifecycle = get_booking_lifecycle(booking_id) if booking_id else None
+    history = _incident_history(incident or {}, messages)
+    lifecycle = get_booking_lifecycle(booking_id, text=history) if booking_id else None
     service = _service_hint(evidence)
     pattern = _pattern_text(incident or {}, messages, lifecycle)
 

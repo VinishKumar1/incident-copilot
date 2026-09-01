@@ -1733,16 +1733,22 @@ mc-notification {
 .mds-tms-delivery__heading { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; }
 .mds-tms-delivery__heading h3 { margin: .15rem 0 .2rem; }
 .mds-tms-delivery__heading p { margin: 0; color: #526574; }
-.mds-tms-timeline { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; margin: 1.25rem 0 1rem; }
+.mds-tms-timeline { display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: .65rem 0; margin: 1.25rem 0 1rem; }
 .mds-tms-step { position: relative; display: grid; justify-items: center; gap: .2rem; text-align: center; color: #7a8791; }
 .mds-tms-step::before { content: ''; position: absolute; height: 2px; background: #d9e0e5; top: 15px; left: -50%; width: 100%; z-index: 0; }
 .mds-tms-step:first-child::before { display: none; }
 .mds-tms-step > span { position: relative; z-index: 1; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: #e6ebef; font-weight: 700; }
 .mds-tms-step strong { font-size: .78rem; color: #33424d; }
 .mds-tms-step small { font-size: .7rem; }
-.mds-tms-step--done::before, .mds-tms-step--active::before { background: #42b0d5; }
+.mds-tms-step--done::before, .mds-tms-step--active::before, .mds-tms-step--failed::before { background: #42b0d5; }
 .mds-tms-step--done > span { background: #147d64; color: #fff; }
 .mds-tms-step--active > span { background: #e98b16; color: #fff; }
+.mds-tms-step--failed > span { background: #c74634; color: #fff; }
+.mds-tms-cancel { margin-top: .85rem; padding: .7rem .85rem; background: #fff; border: 1px solid #dbe4ea; border-radius: 6px; }
+.mds-tms-cancel__heading { display: flex; justify-content: space-between; gap: .75rem; align-items: center; }
+.mds-tms-cancel ul { margin: .45rem 0 0; padding-left: 1.1rem; }
+.mds-tms-cancel li { font-size: .78rem; color: #526574; }
+.mds-tms-cancel .mds-hint { margin: .35rem 0 0; }
 .mds-tms-order-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: .65rem; }
 .mds-tms-order-grid article { padding: .7rem; background: #fff; border: 1px solid #dbe4ea; border-radius: 6px; }
 .mds-tms-order-grid article > div { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
@@ -1753,6 +1759,7 @@ mc-notification {
   .mds-agent-path__arrow { transform: rotate(90deg); justify-self: center; }
   .mds-agent-conclusion { grid-template-columns: 1fr; }
   .mds-tms-timeline { grid-template-columns: repeat(2, 1fr); row-gap: 1rem; }
+  .mds-tms-step:nth-child(2n+1)::before { display: none; }
 }
 .mds-group-incident { background: #fff; border: 1px solid #d9e1e8; border-radius: 8px; overflow: hidden; }
 .mds-group-incident > summary { cursor: pointer; padding: 1rem 1.1rem; display: grid; grid-template-columns: 230px 1fr auto; gap: 1rem; align-items: center; list-style: none; }
