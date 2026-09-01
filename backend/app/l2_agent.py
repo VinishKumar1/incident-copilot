@@ -30,6 +30,22 @@ _KNOWN_FIXES: dict[str, dict[str, Any]] = {
         "problem": "transportPlan.getCarrier().getCode() dereferences a nullable carrier",
         "fix": "Return null or an empty optional when getCarrier() is null, then map the code only when present.",
     },
+    "ServicePlanMongoTemplate.java": {
+        "repository": "telikos-booking-service",
+        "file": "service/src/main/java/net/apmoller/crb/telikos/microservices/booking/persistence/impl/ServicePlanMongoTemplate.java",
+        "line": 530,
+        "symbol": "updateCustomsMilestoneWorkProcess",
+        "problem": "findAndModify on telikos-booking-database.bookings raises E11000 DuplicateKey while Temporal activity resetCustomsStatusInServicePlanDB retries (attempt 148170).",
+        "fix": "Make the customs-milestone reset idempotent: catch DuplicateKeyException, update the existing document instead of inserting, and stop unbounded Temporal retries on a non-retryable unique-index conflict.",
+    },
+    "OfferService.kt": {
+        "repository": "iom-web-integrator",
+        "file": "src/main/kotlin/com/maersk/iom/webintegrator/service/OfferService.kt",
+        "line": 293,
+        "symbol": "updateServicePlanWithRepricedCharges",
+        "problem": "OfferService throws NoAppropriateDataFoundException when reprice returns no charges for the service plan.",
+        "fix": "Treat empty reprice charges as a handled business outcome (return a clear API error) instead of an uncaught exception, and confirm master-data/pricing actually has charge lines for that plan before calling reprice.",
+    },
     "FinanceCallbackHandler.java": {
         "repository": "telikos-billing-service",
         "file": "service/src/main/java/net/apmoller/crb/telikos/billing/service/FinanceCallbackHandler.java",
@@ -115,6 +131,14 @@ def l2_solution(messages: list[str]) -> dict[str, Any]:
     headline = f"Make the failing code at {file_label.split('/')[-1]} null-safe" if "null" in (change.get("problem") or "").lower() else f"Fix the defect in {file_label.split('/')[-1]}"
     if change.get("file", "").endswith("FinanceCallbackHandler.java"):
         headline = "Persist the invoice status returned by the finance callback"
+        root_cause = change["problem"]
+        solution = change["fix"]
+    elif change.get("file", "").endswith("ServicePlanMongoTemplate.java") or "ServicePlanMongoTemplate" in file_label:
+        headline = "Make customs-milestone reset idempotent on DuplicateKey"
+        root_cause = change["problem"]
+        solution = change["fix"]
+    elif change.get("file", "").endswith("OfferService.kt") or "OfferService.kt" in file_label:
+        headline = "Handle missing charges during service-plan reprice"
         root_cause = change["problem"]
         solution = change["fix"]
     elif change.get("file", "").endswith("BookingResponseMapper.java") or "BookingResponseMapper" in file_label:

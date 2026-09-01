@@ -22,6 +22,14 @@ def test_mapping_failure_never_started_tms():
     assert snap["work_process_status"] == "FAILED"
 
 
+def test_customs_booking_is_stuck_on_send_to_customs():
+    snap = get_booking_lifecycle("HNZSJN7MMNK")
+    assert snap["work_process"] == "SEND_TO_CUSTOMS"
+    assert snap["stuck_at"] == "customs_milestone"
+    other = get_booking_lifecycle("HNMQBWJSBRW")
+    assert other["stuck_at"] == "customs_milestone"
+
+
 def test_unknown_booking_is_explicit_not_found():
     snap = get_booking_lifecycle("NO-SUCH-BOOKING")
     assert snap["booking_status"] == "UNKNOWN"

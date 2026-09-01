@@ -71,6 +71,30 @@ _MOCK_BOOKINGS: dict[str, dict[str, Any]] = {
         "transport_orders": [],
         "steps": _steps("done|HTTP 504", "failed|MASTER_DATA", "pending|Not started", "pending|Blocked"),
     },
+    "HNZSJN7MMNK": {
+        "booking_id": "HNZSJN7MMNK",
+        "booking_status": "BOOKED",
+        "work_process": "SEND_TO_CUSTOMS",
+        "work_process_status": "STARTED",
+        "stuck_at": "customs_milestone",
+        "summary": "Customs milestone SEND_TO_CUSTOMS started, but Mongo findAndModify failed with E11000 DuplicateKey on telikos-booking-database.bookings. Temporal activity resetCustomsStatusInServicePlanDB is retrying.",
+        "api_status": None,
+        "headline_tag": "Customs reset failing",
+        "transport_orders": [],
+        "steps": _steps("done|Booking exists", "active|SEND_TO_CUSTOMS", "failed|Mongo DuplicateKey", "pending|Blocked"),
+    },
+    "HNMQBWJSBRW": {
+        "booking_id": "HNMQBWJSBRW",
+        "booking_status": "BOOKED",
+        "work_process": "SEND_TO_CUSTOMS",
+        "work_process_status": "STARTED",
+        "stuck_at": "customs_milestone",
+        "summary": "Customs milestone SEND_TO_CUSTOMS started, but Mongo findAndModify failed with E11000 DuplicateKey on telikos-booking-database.bookings. Temporal activity resetCustomsStatusInServicePlanDB is retrying.",
+        "api_status": None,
+        "headline_tag": "Customs reset failing",
+        "transport_orders": [],
+        "steps": _steps("done|Booking exists", "active|SEND_TO_CUSTOMS", "failed|Mongo DuplicateKey", "pending|Blocked"),
+    },
 }
 
 

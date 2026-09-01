@@ -237,8 +237,8 @@ def test_group_search_returns_demo_incidents_in_mock_mode(client, monkeypatch):
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["incident_count"] == 4
-    assert payload["relevant_count"] == 4
+    assert payload["incident_count"] == 7
+    assert payload["relevant_count"] == 7
     assert payload["incidents"][0]["evidence"][0]["service"] == "telikos-booking-service"
     assert payload["incidents"][0]["pipeline"]
     assert payload["incidents"][0]["actions"]

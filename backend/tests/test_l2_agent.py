@@ -21,6 +21,17 @@ def test_operational_logs_are_not_code_issues():
     assert is_code_issue(messages) is False
 
 
+def test_duplicate_key_stack_is_l2_customs_reset():
+    messages = [
+        "DuplicateKeyException at ServicePlanMongoTemplate.updateCustomsMilestoneWorkProcess(ServicePlanMongoTemplate.java:530)",
+    ]
+    assert is_code_issue(messages) is True
+    solution = l2_solution(messages)
+    assert solution["status"] == "L2_RECOMMENDED"
+    assert solution["code_change"]["symbol"] == "updateCustomsMilestoneWorkProcess"
+    assert "DuplicateKey" in solution["root_cause"]
+
+
 def test_l2_solution_uses_known_finance_handler_fix():
     messages = [
         "Invoice INV-77192014 remains PROCESSING after callback completion at FinanceCallbackHandler.handleSuccess(FinanceCallbackHandler.java:147)",
@@ -29,3 +40,14 @@ def test_l2_solution_uses_known_finance_handler_fix():
     assert solution["status"] == "L2_RECOMMENDED"
     assert solution["code_change"]["symbol"] == "handleSuccess"
     assert any(a["level"] == "L2" for a in solution["agents"])
+
+
+def test_reprice_missing_charges_is_l2_offer_service():
+    messages = [
+        "NoAppropriateDataFoundException: No charges found for reprice at com.maersk.iom.webintegrator.service.OfferService.updateServicePlanWithRepricedCharges.invoke(OfferService.kt:293)",
+    ]
+    assert is_code_issue(messages) is True
+    solution = l2_solution(messages)
+    assert solution["status"] == "L2_RECOMMENDED"
+    assert solution["code_change"]["file"].endswith("OfferService.kt")
+    assert solution["code_change"]["line"] == 293
