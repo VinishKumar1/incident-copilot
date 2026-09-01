@@ -149,7 +149,7 @@ MOCK_INCIDENTS: list[dict[str, Any]] = [
         "suggested_assignment": {"team": "Billing Engineering", "reason": "L2 identified a missing persistence call in FinanceCallbackHandler.java that requires a source-code fix."},
         "evidence": [{"service": "telikos-billing-service", "namespace": "telikos", "source": "identifier", "matched_identifier": "INV-77192014", "count": 7, "logs": [
             {"ts": "2026-08-28T09:15:10Z", "level": "info", "trace_id": "b14b69a2a8454fa2", "message": "Finance callback SUCCESS received for INV-77192014"},
-            {"ts": "2026-08-28T09:15:11Z", "level": "warn", "trace_id": "b14b69a2a8454fa2", "message": "Invoice INV-77192014 remains PROCESSING after callback completion"},
+            {"ts": "2026-08-28T09:15:11Z", "level": "warn", "trace_id": "b14b69a2a8454fa2", "message": "Invoice INV-77192014 remains PROCESSING after callback completion at FinanceCallbackHandler.handleSuccess(FinanceCallbackHandler.java:147)"},
         ]}],
     },
     {

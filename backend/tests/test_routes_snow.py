@@ -153,6 +153,35 @@ def test_mark_used_records_feedback(client, monkeypatch):
     assert calls == [("INC0012345", True, True, "adjusted the timeout value")]
 
 
+def test_approve_summary_upserts_kb(client, monkeypatch):
+    calls = []
+
+    async def fake_upsert(entry):
+        calls.append(entry)
+        return "kb-approved-1"
+
+    async def fake_record_kb_feedback(incident_number, used, edited=False, notes=""):
+        return None
+
+    monkeypatch.setattr(snow, "upsert_entry", fake_upsert)
+    monkeypatch.setattr(snow, "record_kb_feedback", fake_record_kb_feedback)
+
+    response = client.post(
+        "/api/snow/incident/inc0098421/approve-summary",
+        json={
+            "summary": "Recover missing TMS ack",
+            "root_cause": "TO pending",
+            "suggested_fix": "Replay acknowledgement",
+            "pattern_text": "SEND_TO_TMS pending",
+            "service": "telikos-booking-service",
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["kb_entry_id"] == "kb-approved-1"
+    assert calls[0].servicenow_incident == "INC0098421"
+    assert calls[0].root_cause == "TO pending"
+
+
 def test_group_search_correlates_logs_and_suggests_actions(client, monkeypatch):
     monkeypatch.setattr(snow.settings, "use_mock", False)
     class FakeSnowClient:
@@ -209,8 +238,9 @@ def test_group_search_returns_demo_incidents_in_mock_mode(client, monkeypatch):
     assert response.status_code == 200
     payload = response.json()
     assert payload["incident_count"] == 4
-    assert payload["relevant_count"] == 3
-    assert payload["incidents"][0]["evidence"][0]["service"] == "booking-intake"
+    assert payload["relevant_count"] == 4
+    assert payload["incidents"][0]["evidence"][0]["service"] == "telikos-booking-service"
+    assert payload["incidents"][0]["pipeline"]
     assert payload["incidents"][0]["actions"]
 
 
@@ -221,4 +251,6 @@ def test_incident_search_returns_demo_incident_in_mock_mode(client, monkeypatch)
     assert response.status_code == 200
     payload = response.json()
     assert payload["incident"]["number"] == "INC0098421"
-    assert "MHXHTFLMG9P9" in payload["loki_results"]
+    assert "GHDGW54NC00" in payload["loki_results"]
+    assert payload["pipeline"]
+    assert payload["booking_lifecycle"]["stuck_at"] == "tms_acknowledgement"

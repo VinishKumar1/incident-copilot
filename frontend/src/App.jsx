@@ -7,7 +7,7 @@ import {
   setNamespace, matchCode, fixIt, searchKey, searchSummary,
   createAdhocIssue, getNamespaceSummary, getDashboard, getVibeUsage,
   getSnowStatus, getSnowIncident,
-  getSnowGroupIncidents,
+  getSnowGroupIncidents, approveSnowSummary,
 } from './api'
 
 const REFRESH_MS = 5000
@@ -1049,6 +1049,146 @@ const SNOW_STATE_COLOUR = {
   Cancelled: 'var(--mds-color-text-secondary, #888)',
 }
 
+function pipelineTag(status) {
+  if (status === 'done' || status === 'hit' || status === 'l1') return 'success'
+  if (status === 'l2' || status === 'pending_approval') return 'warning'
+  if (status === 'miss' || status === 'failed') return 'error'
+  return 'neutral'
+}
+
+function ResolverPipeline({ steps }) {
+  if (!steps?.length) return null
+  return (
+    <ol className="mds-resolver-pipeline">
+      {steps.map((step, index) => (
+        <li key={step.step || index} className={`mds-resolver-pipeline__step mds-resolver-pipeline__step--${step.status}`}>
+          <span className="mds-resolver-pipeline__index">{index + 1}</span>
+          <div>
+            <div className="mds-resolver-pipeline__head">
+              <strong>{step.title}</strong>
+              <Tag appearance={pipelineTag(step.status)} fit="small">{String(step.status).replace('_', ' ')}</Tag>
+            </div>
+            <p>{step.detail}</p>
+            {step.basis && <small>{step.basis}</small>}
+          </div>
+        </li>
+      ))}
+    </ol>
+  )
+}
+
+function BookingLifecycle({ lifecycle }) {
+  if (!lifecycle) return null
+  const pending = (lifecycle.transport_orders || []).filter(o => o.acknowledgement !== 'ACCEPTED').length
+  const tagAppearance = lifecycle.stuck_at ? 'warning' : lifecycle.booking_status === 'FAILED' ? 'error' : 'success'
+  return (
+    <section className="mds-tms-delivery">
+      <div className="mds-tms-delivery__heading">
+        <div>
+          <span className="mds-eyebrow">Booking lifecycle</span>
+          <h3>Where is {lifecycle.booking_id} in the workflow?</h3>
+          <p>{lifecycle.summary}</p>
+        </div>
+        <Tag appearance={tagAppearance}>{lifecycle.headline_tag || lifecycle.work_process_status}</Tag>
+      </div>
+      <div className="mds-tms-timeline">
+        {(lifecycle.steps || []).map(step => (
+          <div key={step.label} className={`mds-tms-step${step.state === 'done' ? ' mds-tms-step--done' : ''}${step.state === 'active' || step.state === 'failed' ? ' mds-tms-step--active' : ''}`}>
+            <span>{step.mark}</span>
+            <strong>{step.label}</strong>
+            <small>{step.detail}</small>
+          </div>
+        ))}
+      </div>
+      {lifecycle.transport_orders?.length > 0 && (
+        <div className="mds-tms-order-grid">
+          {lifecycle.transport_orders.map(order => (
+            <article key={order.number}>
+              <div>
+                <code>{order.number}</code>
+                <Tag appearance={order.acknowledgement === 'ACCEPTED' ? 'success' : 'warning'} fit="small">{order.acknowledgement}</Tag>
+              </div>
+              <small>Version {order.version} · {order.received_at ? `Received ${new Date(order.received_at).toLocaleTimeString()}` : 'No acknowledgement received'}</small>
+            </article>
+          ))}
+        </div>
+      )}
+      {lifecycle.transport_orders?.length > 0 && pending > 0 && (
+        <p className="mds-hint" style={{ marginTop: '0.75rem' }}>{pending} transport order{pending === 1 ? '' : 's'} still waiting on TMS feedback.</p>
+      )}
+    </section>
+  )
+}
+
+function ApproveSummary({ incidentNumber, recommendation, patternText, service }) {
+  const rec = recommendation || {}
+  const [summary, setSummary] = useState(rec.summary || '')
+  const [rootCause, setRootCause] = useState(rec.root_cause || '')
+  const [fix, setFix] = useState(rec.suggested_fix || '')
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(null)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    setSummary(rec.summary || '')
+    setRootCause(rec.root_cause || '')
+    setFix(rec.suggested_fix || '')
+    setSaved(null)
+    setError(null)
+  }, [incidentNumber, rec.summary, rec.root_cause, rec.suggested_fix])
+
+  const approve = async () => {
+    if (!rootCause.trim() || !fix.trim()) return
+    setSaving(true)
+    setError(null)
+    try {
+      const result = await approveSnowSummary(incidentNumber, {
+        summary: summary.trim() || rootCause.trim(),
+        root_cause: rootCause.trim(),
+        suggested_fix: fix.trim(),
+        pattern_text: patternText || '',
+        service: service || '',
+        notes: 'Approved in incident workspace',
+      })
+      setSaved(result)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <section className="mds-assignment-panel">
+      <div className="mds-assignment-panel__head">
+        <div>
+          <span className="mds-eyebrow">Resolver summary</span>
+          <h3>Approve for the knowledge bank</h3>
+        </div>
+        <Tag appearance="info" fit="small">Human approval required</Tag>
+      </div>
+      <label htmlFor={`sum-${incidentNumber}`}>Headline</label>
+      <textarea id={`sum-${incidentNumber}`} value={summary} rows={2} onChange={e => { setSummary(e.target.value); setSaved(null) }} />
+      <label htmlFor={`rc-${incidentNumber}`}>Root cause</label>
+      <textarea id={`rc-${incidentNumber}`} value={rootCause} rows={3} onChange={e => { setRootCause(e.target.value); setSaved(null) }} />
+      <label htmlFor={`fix-${incidentNumber}`}>Suggested fix</label>
+      <textarea id={`fix-${incidentNumber}`} value={fix} rows={3} onChange={e => { setFix(e.target.value); setSaved(null) }} />
+      <div className="mds-assignment-panel__actions">
+        <Btn appearance="primary" fit="small" disabled={saving || !rootCause.trim() || !fix.trim() || !!saved} onClick={approve}>
+          {saving ? <><Spinner /> Saving…</> : saved ? 'Approved & stored' : 'Approve summary'}
+        </Btn>
+        <small>Stores the approved wording as a verified RAG entry for the next similar incident.</small>
+      </div>
+      {error && <Notification appearance="error" heading="Could not save">{error}</Notification>}
+      {saved && (
+        <Notification appearance="success" heading="Saved to knowledge bank">
+          {saved.kb_entry_id ? `Entry ${saved.kb_entry_id} is now searchable by L1.` : 'Recorded. Embeddings were not available, so the entry was not indexed.'}
+        </Notification>
+      )}
+    </section>
+  )
+}
+
 function SuggestedAssignment({ incidentNumber, assignment, mockMode }) {
   const [reason, setReason] = useState(assignment.reason)
   const [updated, setUpdated] = useState(false)
@@ -1219,6 +1359,7 @@ function IncidentView() {
                   <span>{item.evidence.length} correlated service group{item.evidence.length === 1 ? '' : 's'}</span>
                 </summary>
                 <div className="mds-group-incident__body">
+                  <ResolverPipeline steps={item.pipeline} />
                   {item.agent_solution && (
                     <section className="mds-agent-solution">
                       <div className="mds-agent-solution__top">
@@ -1268,35 +1409,16 @@ function IncidentView() {
                       )}
                     </section>
                   )}
+                  <ApproveSummary
+                    incidentNumber={item.incident.number}
+                    recommendation={item.recommendation}
+                    patternText={item.pattern_text}
+                    service={item.resolver_service}
+                  />
                   {item.suggested_assignment && (
                     <SuggestedAssignment incidentNumber={item.incident.number} assignment={item.suggested_assignment} mockMode={snowStatus?.auth_mode === 'mock'} />
                   )}
-                  {item.tms_delivery && (
-                    <section className="mds-tms-delivery">
-                      <div className="mds-tms-delivery__heading">
-                        <div>
-                          <span className="mds-eyebrow">TMS delivery trail</span>
-                          <h3>Was the booking sent to TMS?</h3>
-                          <p>{item.tms_delivery.summary}</p>
-                        </div>
-                        <Tag appearance="warning">Awaiting acknowledgement</Tag>
-                      </div>
-                      <div className="mds-tms-timeline">
-                        <div className="mds-tms-step mds-tms-step--done"><span>✓</span><strong>API accepted</strong><small>HTTP {item.tms_delivery.api_status}</small></div>
-                        <div className="mds-tms-step mds-tms-step--done"><span>✓</span><strong>Workflow started</strong><small>{item.tms_delivery.work_process}</small></div>
-                        <div className="mds-tms-step mds-tms-step--active"><span>!</span><strong>TMS feedback</strong><small>1 of {item.tms_delivery.transport_orders.length} pending</small></div>
-                        <div className="mds-tms-step"><span>4</span><strong>Completed</strong><small>Waiting</small></div>
-                      </div>
-                      <div className="mds-tms-order-grid">
-                        {item.tms_delivery.transport_orders.map(order => (
-                          <article key={order.number}>
-                            <div><code>{order.number}</code><Tag appearance={order.acknowledgement === 'ACCEPTED' ? 'success' : 'warning'} fit="small">{order.acknowledgement}</Tag></div>
-                            <small>Version {order.version} · {order.received_at ? `Received ${new Date(order.received_at).toLocaleTimeString()}` : 'No acknowledgement received'}</small>
-                          </article>
-                        ))}
-                      </div>
-                    </section>
-                  )}
+                  <BookingLifecycle lifecycle={item.booking_lifecycle || item.tms_delivery} />
                   <section>
                     <h3>What is relevant</h3>
                     <div className="mds-relevance-strip">
@@ -1375,6 +1497,10 @@ function IncidentView() {
         </div>
       )}
 
+      {inc && result?.pipeline && <ResolverPipeline steps={result.pipeline} />}
+
+      {inc && result?.booking_lifecycle && <BookingLifecycle lifecycle={result.booking_lifecycle} />}
+
       {inc && result?.agent_solution && (
         <div className="mds-direct-solution">
           <div>
@@ -1388,6 +1514,15 @@ function IncidentView() {
           </div>
           <div className="mds-confidence-score"><strong>{Math.round(result.agent_solution.final_confidence * 100)}%</strong><span>confidence</span></div>
         </div>
+      )}
+
+      {inc && result?.recommendation && (
+        <ApproveSummary
+          incidentNumber={inc.number}
+          recommendation={result.recommendation}
+          patternText={result.pattern_text}
+          service={result.resolver_service}
+        />
       )}
 
       {inc && result?.suggested_assignment && (

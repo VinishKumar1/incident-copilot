@@ -11,10 +11,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from ..analytics import record_kb_feedback
 from ..auth import require_user, require_admin
 from ..config import settings
+from ..kb import upsert_entry
 from ..l1_agent import l1_lookup
 from ..llm import llm_client
 from ..mock_snow import mock_group, mock_incident
-from ..models import MarkUsedRequest, Recommendation
+from ..models import ApproveSummaryRequest, KBEntry, MarkUsedRequest, Recommendation
+from ..resolver import resolve_incident
 from ..snow import _clean_incident, extract_identifiers, snow_client
 from ..source import search_key
 from ..websearch import web_search_client
@@ -123,6 +125,34 @@ async def _lookup_incident_and_logs(number: str, minutes: int) -> dict[str, Any]
     }
 
 
+def _evidence_from_item(item: dict[str, Any]) -> list[dict[str, Any]]:
+    if item.get("evidence"):
+        return item["evidence"]
+    combined: dict[str, Any] = {"services": [], "trace_issues": []}
+    for res in (item.get("loki_results") or {}).values():
+        if not isinstance(res, dict):
+            continue
+        combined["services"].extend(res.get("services") or [])
+        combined["trace_issues"].extend(res.get("trace_issues") or [])
+    return _log_groups(combined)
+
+
+async def _attach_resolution(item: dict[str, Any]) -> dict[str, Any]:
+    """Run lifecycle → RAG → L2 routing → draft summary on an incident payload."""
+    resolution = await resolve_incident(
+        item.get("incident") or {},
+        item.get("identifiers") or {},
+        _evidence_from_item(item),
+    )
+    item["pipeline"] = resolution["pipeline"]
+    item["booking_lifecycle"] = resolution["booking_lifecycle"]
+    item["agent_solution"] = resolution["agent_solution"] or item.get("agent_solution")
+    item["recommendation"] = resolution["recommendation"]
+    item["pattern_text"] = resolution["pattern_text"]
+    item["resolver_service"] = resolution["service"]
+    return item
+
+
 @router.get("/incident/{number}", dependencies=[Depends(require_admin)])
 async def get_incident(number: str, minutes: int = 43200) -> dict[str, Any]:
     """Fetch a ServiceNow incident, extract business identifiers, and search Loki for each.
@@ -133,6 +163,7 @@ async def get_incident(number: str, minutes: int = 43200) -> dict[str, Any]:
     - loki_results: dict of {identifier_value: search_result} for each extracted key
     """
     data = await _lookup_incident_and_logs(number, minutes)
+    await _attach_resolution(data)
     return {**data, "minutes": minutes}
 
 
@@ -147,7 +178,10 @@ async def get_group_incidents(group: str, minutes: int = 1440, limit: int = 20) 
     minutes = max(1, min(minutes, 43200))
     limit = max(1, min(limit, 50))
     if settings.use_mock:
-        return mock_group(group, minutes, limit, _feasible_actions)
+        payload = mock_group(group, minutes, limit, _feasible_actions)
+        for item in payload.get("incidents") or []:
+            await _attach_resolution(item)
+        return payload
     if not snow_client.configured:
         raise HTTPException(status_code=503, detail="ServiceNow not configured")
 
@@ -184,6 +218,8 @@ async def get_group_incidents(group: str, minutes: int = 1440, limit: int = 20) 
 
     incidents = await asyncio.gather(*(enrich(record) for record in records))
     relevant = sum(item["relevance"] == "high" for item in incidents)
+    for item in incidents:
+        await _attach_resolution(item)
     return {
         "group": group,
         "minutes": minutes,
@@ -275,6 +311,24 @@ async def analyze_incident(number: str, minutes: int = 43200) -> dict[str, Any]:
         "identifiers": data["identifiers"],
         "recommendation": recommendation.model_dump(),
     }
+
+
+@router.post("/incident/{number}/approve-summary", dependencies=[Depends(require_admin)])
+async def approve_summary(number: str, body: ApproveSummaryRequest) -> dict[str, Any]:
+    """Human approves (and optionally edits) the resolver summary, then stores it in the KB."""
+    number = number.strip().upper()
+    pattern = (body.pattern_text or f"{body.summary}\n{body.root_cause}\n{body.suggested_fix}").strip()
+    entry = KBEntry(
+        service=body.service or "",
+        pattern_text=pattern,
+        root_cause=body.root_cause,
+        fix_summary=body.suggested_fix,
+        servicenow_incident=number,
+        verified_by="human",
+    )
+    kb_id = await upsert_entry(entry)
+    await record_kb_feedback(number, used=True, edited=body.summary != body.root_cause, notes=body.notes or body.summary)
+    return {"ok": True, "kb_entry_id": kb_id, "incident_number": number}
 
 
 @router.post("/incident/{number}/mark-used", dependencies=[Depends(require_admin)])

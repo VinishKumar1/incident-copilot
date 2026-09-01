@@ -12,10 +12,12 @@ needs no new credential beyond what llm.py already uses.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import math
 import os
+import re
 import time
 import uuid
 from pathlib import Path
@@ -66,13 +68,35 @@ def _get_embed_client():
     return _embed_client
 
 
+_LEX_DIM = 96
+_TOKEN_RE = re.compile(r"[a-z0-9]+")
+
+
+def _lexical_embed(text: str) -> list:
+    """Hash-bag vector so mock/demo RAG works without an embeddings API key."""
+    vec = [0.0] * _LEX_DIM
+    for token in _TOKEN_RE.findall((text or "").lower()):
+        if len(token) < 3:
+            continue
+        idx = int(hashlib.md5(token.encode()).hexdigest(), 16) % _LEX_DIM
+        vec[idx] += 1.0
+    norm = math.sqrt(sum(x * x for x in vec)) or 1.0
+    return [x / norm for x in vec]
+
+
 async def embed_text(text: str) -> Optional[list]:
-    """Returns an embedding vector, or None if no embeddings client is configured."""
+    """Returns an embedding vector, or None if no embeddings client is configured.
+
+    In mock mode we fall back to a local lexical vector so L1 RAG can be demoed
+    without OpenAI/Azure credentials.
+    """
     client = _get_embed_client()
-    if client is None:
-        return None
-    resp = await client.embeddings.create(model=settings.embedding_model, input=(text or "")[:8000])
-    return list(resp.data[0].embedding)
+    if client is not None:
+        resp = await client.embeddings.create(model=settings.embedding_model, input=(text or "")[:8000])
+        return list(resp.data[0].embedding)
+    if settings.use_mock:
+        return _lexical_embed(text)
+    return None
 
 
 def _cosine_similarity(a: list, b: list) -> float:
@@ -293,6 +317,8 @@ async def init_kb() -> None:
     else:
         _get_sqlite()
         log.info("kb: using SQLite at %s", _KB_DB_PATH)
+    if settings.use_mock:
+        await seed_mock_kb()
 
 
 async def upsert_entry(entry: KBEntry) -> Optional[str]:
@@ -314,5 +340,59 @@ async def search(pattern_text: str, service: str = "", top_k: int = 3) -> list:
     if embedding is None:
         return []
     if _USE_POSTGRES and _pg_available:
-        return await _pg_search(embedding, service, top_k)
-    return _sqlite_search(embedding, service, top_k)
+        matches = await _pg_search(embedding, service, top_k)
+    else:
+        matches = _sqlite_search(embedding, service, top_k)
+    return matches
+
+
+_SEED_ENTRIES = [
+    KBEntry(
+        id="seed-tms-ack",
+        service="",
+        pattern_text=(
+            "Bookings remain pending after submission. Booking remains pending after Send to TMS "
+            "was requested. One of two transport orders has not received a TMS acknowledgement. "
+            "SEND_TO_TMS started. TMS acknowledgement still pending for transport order."
+        ),
+        root_cause="The booking request was accepted and SEND_TO_TMS started, but a transport order has no acknowledgement, so the workflow cannot complete.",
+        fix_summary="Check the outbound TMS topic and acknowledgement consumer. Replay the missing acknowledgement when the outbound message exists; otherwise perform one idempotent Send-to-TMS retrigger.",
+        servicenow_incident="INC0098421",
+        verified_by="seed",
+        verified_at=1.0,
+    ),
+    KBEntry(
+        id="seed-s3-403",
+        service="",
+        pattern_text=(
+            "Documents unavailable for completed shipment. Customer cannot download documents. "
+            "S3Exception Access Denied Status Code 403. Document lookup failed for container."
+        ),
+        root_cause="S3 is returning HTTP 403 for the document lookup, matching an expired or mis-scoped workload identity.",
+        fix_summary="Validate the current workload identity and S3 bucket policy, then refresh the configured credential reference. Keep permissions limited to the document bucket and retry the lookup.",
+        servicenow_incident="INC0098417",
+        verified_by="seed",
+        verified_at=1.0,
+    ),
+    KBEntry(
+        id="seed-consumer-lag",
+        service="",
+        pattern_text=(
+            "Billing events delayed by consumer lag. Billing events for invoice are delayed while "
+            "Kafka consumer lag is elevated. Consumer group telikos-billing lag partition."
+        ),
+        root_cause="The billing consumer group is healthy but processing more slowly than the incoming event rate, matching the consumer-lag runbook.",
+        fix_summary="Check for a stuck partition and downstream throttling, then scale the consumer within the configured partition limit and monitor lag until it drains.",
+        servicenow_incident="INC0098344",
+        verified_by="seed",
+        verified_at=1.0,
+    ),
+]
+
+
+async def seed_mock_kb() -> None:
+    """Load demo runbooks so L1 RAG has something to hit in mock mode."""
+    for entry in _SEED_ENTRIES:
+        entry_id = await upsert_entry(entry)
+        if entry_id:
+            log.info("kb: seeded mock entry %s", entry_id)

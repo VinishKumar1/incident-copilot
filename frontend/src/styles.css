@@ -1678,6 +1678,46 @@ mc-notification {
 .mds-assignment-panel__actions { display: flex; align-items: center; gap: .75rem; margin-top: .65rem; }
 .mds-assignment-panel__actions small { color: #6b7c89; }
 .mds-assignment-panel .mds-notification { margin-bottom: 0; }
+
+.mds-resolver-pipeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: .55rem;
+}
+.mds-resolver-pipeline__step {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: .7rem;
+  align-items: flex-start;
+  padding: .7rem .8rem;
+  border: 1px solid #d5e3ea;
+  border-radius: 8px;
+  background: #fff;
+}
+.mds-resolver-pipeline__index {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #e4eef3;
+  color: #1f4a63;
+  font-size: .75rem;
+  font-weight: 700;
+}
+.mds-resolver-pipeline__head { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.mds-resolver-pipeline__head strong { color: #00243d; font-size: .86rem; }
+.mds-resolver-pipeline__step p { margin: .2rem 0 0; color: #526574; font-size: .8rem; }
+.mds-resolver-pipeline__step small { display: block; margin-top: .2rem; color: #6b7c89; }
+.mds-resolver-pipeline__step--hit .mds-resolver-pipeline__index,
+.mds-resolver-pipeline__step--done .mds-resolver-pipeline__index,
+.mds-resolver-pipeline__step--l1 .mds-resolver-pipeline__index { background: #147d64; color: #fff; }
+.mds-resolver-pipeline__step--l2 .mds-resolver-pipeline__index,
+.mds-resolver-pipeline__step--pending_approval .mds-resolver-pipeline__index { background: #e98b16; color: #fff; }
+.mds-resolver-pipeline__step--miss .mds-resolver-pipeline__index { background: #c62828; color: #fff; }
+
 .mds-direct-solution { display: flex; justify-content: space-between; gap: 1rem; padding: 1rem; margin: .8rem 0; border: 1px solid #b9d9e7; border-radius: 8px; background: #f4fbfe; }
 .mds-direct-solution h3 { margin: .15rem 0 .5rem; }
 .mds-direct-solution p { margin: .35rem 0; }

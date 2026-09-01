@@ -199,3 +199,12 @@ class MarkUsedRequest(BaseModel):
     used: bool
     edited: bool = False
     notes: str = ""
+
+
+class ApproveSummaryRequest(BaseModel):
+    summary: str
+    root_cause: str
+    suggested_fix: str
+    pattern_text: str = ""
+    service: str = ""
+    notes: str = ""

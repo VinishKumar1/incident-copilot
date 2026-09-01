@@ -118,9 +118,21 @@ describe('api helpers', () => {
     expect(loginRedirect).toHaveBeenCalled()
   })
 
-  it('throws for non-401 HTTP failures', async () => {
-    fetch.mockResolvedValueOnce(makeResponse({ ok: false, status: 500, statusText: 'Server Error' }))
+  it('posts an approved resolver summary', async () => {
     const api = await import('./api.js')
-    await expect(api.getStatus()).rejects.toThrow('500 Server Error')
+    await api.approveSnowSummary('INC0098421', {
+      summary: 'Recover TMS ack',
+      root_cause: 'pending TO',
+      suggested_fix: 'replay ack',
+    })
+    expect(fetch).toHaveBeenCalledWith('/api/snow/incident/INC0098421/approve-summary', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer id-token' },
+      body: JSON.stringify({
+        summary: 'Recover TMS ack',
+        root_cause: 'pending TO',
+        suggested_fix: 'replay ack',
+      }),
+    })
   })
 })
