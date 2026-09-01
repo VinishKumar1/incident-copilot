@@ -124,24 +124,10 @@ function TypingDots() {
   )
 }
 
-/** Freshness indicator tag next to status */
-function FreshnessPill({ ts }) {
-  if (!ts) return null
-  const age = Math.max(0, Math.floor(Date.now() / 1000 - ts))
-  const stale = age > 45
-  return (
-    <Tag appearance={stale ? 'error' : 'success'} fit="small">
-      {stale ? `stalled · ${age}s` : `updated ${age}s ago`}
-    </Tag>
-  )
-}
-
-// ─── Tab bar (styled with MDS tokens, native React click handlers) ───────────
-
 const TABS = [
-  { value: 'search',   label: 'Search by Key', icon: '⌕' },
-  { value: 'incident', label: 'Incident Search', icon: '◎' },
-  { value: 'dashboard',label: 'Dashboard', icon: '▦' },
+  { value: 'incident', label: 'Incidents' },
+  { value: 'search', label: 'Log search' },
+  { value: 'dashboard', label: 'Dashboard' },
 ]
 
 function TabBar({ value, onChange, tabs = TABS }) {
@@ -155,28 +141,12 @@ function TabBar({ value, onChange, tabs = TABS }) {
           className={`mds-tab${value === t.value ? ' mds-tab--active' : ''}`}
           onClick={() => onChange(t.value)}
         >
-          <span className="mds-tab__icon" aria-hidden="true">{t.icon}</span>
           {t.label}
         </button>
       ))}
     </div>
   )
 }
-
-function PageIntro({ eyebrow, title, description, children }) {
-  return (
-    <div className="mds-page-intro">
-      <div>
-        <span className="mds-page-intro__eyebrow">{eyebrow}</span>
-        <h1>{title}</h1>
-        <p>{description}</p>
-      </div>
-      {children && <div className="mds-page-intro__aside">{children}</div>}
-    </div>
-  )
-}
-
-// ─── Header ──────────────────────────────────────────────────────────────────
 
 function UserWidget() {
   const { instance, accounts } = useMsal()
@@ -229,10 +199,11 @@ function Header({ status, namespaces, onChangeNs, switching, ssoEnabled }) {
       {status && (
         <div className="mds-header__controls">
           <div className="mds-header__ns-picker">
-            <label className="mds-label" htmlFor="ns-select">Namespace</label>
+            <label className="mds-label" htmlFor="ns-select">NS</label>
             <select
               id="ns-select"
               className="mds-native-select"
+              aria-label="Namespace"
               value={status.namespace || ''}
               disabled={switching || namespaces.length === 0}
               onChange={(e) => onChangeNs(e.target.value)}
@@ -247,19 +218,11 @@ function Header({ status, namespaces, onChangeNs, switching, ssoEnabled }) {
           </div>
 
           <div className="mds-header__status-tags">
-            {switching && (
-              <Tag appearance="neutral" fit="small">
-                <Spinner /> switching…
-              </Tag>
-            )}
-            <FreshnessPill ts={status.last_poll_ts} />
-            <Tag appearance={status.mock ? 'warning' : 'success'} fit="small">
-              {status.mock ? 'MOCK DATA' : 'LIVE'}
-            </Tag>
-
-            {status.last_error && (
-              <Tag appearance="error" fit="small">poll error</Tag>
-            )}
+            {switching && <span className="ih-header-quiet"><Spinner /> switching</span>}
+            <span className={`ih-header-quiet${status.mock ? ' ih-header-quiet--warn' : ''}`}>
+              {status.mock ? 'Demo' : 'Live'}
+            </span>
+            {status.last_error && <Tag appearance="error" fit="small">poll error</Tag>}
           </div>
         </div>
       )}
@@ -579,7 +542,7 @@ function ProblemInvestigation({ match }) {
   return (
     <div className="mds-investigate">
       <Btn variant="plain" appearance="neutral" fit="small" onClick={toggle}>
-        {open ? '▾ Hide investigation' : '▸ Investigate (Analyze · Find in code · Chat)'}
+        {open ? 'Hide investigation' : 'Investigate'}
       </Btn>
       {open && (
         loading
@@ -803,14 +766,10 @@ function SearchView() {
 
   return (
     <div className="mds-search-view">
-      <PageIntro
-        eyebrow="Evidence discovery"
-        title="Follow an incident across services"
-        description="Start with a booking, container, bill of lading, invoice or trace ID. Incident Handler connects the matching logs and highlights the failures that matter."
-      >
-        <div className="mds-page-intro__signal"><span /> Searches all monitored services</div>
-        <div className="mds-page-intro__signal"><span /> Correlates downstream traces</div>
-      </PageIntro>
+      <div className="ih-page-head">
+        <h1>Log search</h1>
+        <p>Look up a booking, container, bill of lading, invoice or trace ID across services.</p>
+      </div>
       <form className="mds-search-bar" onSubmit={(e) => { e.preventDefault(); doSearch() }}>
         <span className="mds-search-bar__icon" aria-hidden="true">⌕</span>
         <input
@@ -858,9 +817,8 @@ function SearchView() {
             )}
 
             <div className="mds-search-stats">
-              <strong>"{res.key}"</strong> — {res.problem_count} problem(s) across {withProblems.length} service(s);
-              {' '}{res.total_matches} total log match(es) in the last {res.minutes >= 1440 ? `${res.minutes/60}h` : res.minutes >= 60 ? `${res.minutes/60}h` : `${res.minutes}m`}.
-              <div className="mds-hint">{res.total_matches} log line(s) matched across {res.namespaces?.length || 1} namespace(s)</div>
+              <strong>{res.key}</strong>
+              <span className="ih-quiet">{res.problem_count} problem{res.problem_count === 1 ? '' : 's'} · {withProblems.length} service{withProblems.length === 1 ? '' : 's'}</span>
               {res.note && <div className="mds-hint">{res.note}</div>}
             </div>
 
@@ -907,7 +865,7 @@ function SearchView() {
             {res.trace_issues?.length > 0 && (
               <div className="mds-trace-issues-section">
                 <div className="mds-trace-issues-header">
-                  <span className="mds-trace-issues-title">🔗 Related failures found via trace propagation</span>
+                  <span className="mds-trace-issues-title">Related failures via the same trace</span>
                   <span className="mds-hint">
                     These errors were not triggered by "{res.key}" directly, but share the same trace ID —
                     downstream services failed as part of the same request chain.
@@ -1032,28 +990,47 @@ function ActivityBar({ hourly }) {
 // ─── Incident Search (ServiceNow) ────────────────────────────────────────────
 
 const ID_TYPE_LABELS = {
-  booking: '📦 Booking',
-  bol: '📄 Bill of Lading',
-  container: '🚢 Container',
-  invoice: '🧾 Invoice',
-  shipment: '📮 Shipment',
-  po: '📋 Purchase Order',
+  booking: 'Booking',
+  bol: 'Bill of lading',
+  container: 'Container',
+  invoice: 'Invoice',
+  shipment: 'Shipment',
+  po: 'Purchase order',
 }
 
 const SNOW_STATE_COLOUR = {
-  New: 'var(--mds-color-feedback-warning, #e65100)',
-  'In Progress': 'var(--mds-color-feedback-warning, #e65100)',
-  Resolved: 'var(--mds-color-feedback-success, #2e7d32)',
-  Closed: 'var(--mds-color-text-secondary, #888)',
+  New: '#b26a00',
+  'In Progress': '#b26a00',
+  Resolved: '#2e7d32',
+  Closed: '#6b7785',
   'On Hold': '#6366f1',
-  Cancelled: 'var(--mds-color-text-secondary, #888)',
+  Cancelled: '#6b7785',
 }
 
-function pipelineTag(status) {
-  if (status === 'done' || status === 'hit' || status === 'l1') return 'success'
-  if (status === 'l2' || status === 'pending_approval') return 'warning'
-  if (status === 'miss' || status === 'failed') return 'error'
-  return 'neutral'
+function QuietDetails({ title, hint, children, defaultOpen = false }) {
+  if (!children) return null
+  return (
+    <details className="ih-disclosure" open={defaultOpen}>
+      <summary>
+        <span>{title}</span>
+        {hint && <small>{hint}</small>}
+      </summary>
+      <div className="ih-disclosure__body">{children}</div>
+    </details>
+  )
+}
+
+function pipelineHint(steps) {
+  if (!steps?.length) return ''
+  const route = steps.find(s => s.step === 'route')
+  const rag = steps.find(s => s.step === 'rag')
+  const life = steps.find(s => s.step === 'lifecycle')
+  const bits = []
+  if (life?.status === 'skipped') bits.push('lifecycle skipped')
+  if (rag) bits.push(rag.status === 'hit' ? 'runbook match' : 'no runbook')
+  if (route?.status === 'l2') bits.push('code issue → L2')
+  else if (route?.status === 'l1') bits.push('L1')
+  return bits.join(' · ')
 }
 
 function ResolverPipeline({ steps }) {
@@ -1066,7 +1043,7 @@ function ResolverPipeline({ steps }) {
           <div>
             <div className="mds-resolver-pipeline__head">
               <strong>{step.title}</strong>
-              <Tag appearance={pipelineTag(step.status)} fit="small">{String(step.status).replace('_', ' ')}</Tag>
+              <span className="ih-quiet">{String(step.status).replace('_', ' ')}</span>
             </div>
             <p>{step.detail}</p>
             {step.basis && <small>{step.basis}</small>}
@@ -1080,59 +1057,123 @@ function ResolverPipeline({ steps }) {
 function BookingLifecycle({ lifecycle }) {
   if (!lifecycle) return null
   const pending = (lifecycle.transport_orders || []).filter(o => o.acknowledgement !== 'ACCEPTED').length
-  const tagAppearance = lifecycle.stuck_at ? 'warning' : lifecycle.booking_status === 'FAILED' ? 'error' : 'success'
   const cancel = lifecycle.cancellation
-  const cancelAppearance = cancel?.allowed === true ? 'success' : cancel?.allowed === false ? 'error' : 'warning'
-  const cancelLabel = cancel?.allowed === true ? 'Cancel allowed' : cancel?.allowed === false ? 'Cancel not allowed' : 'Cancel: insufficient data'
+  const current = (lifecycle.steps || []).find(s => s.state === 'active' || s.state === 'failed')
+  const cancelLabel = cancel?.allowed === true ? 'Cancel allowed' : cancel?.allowed === false ? 'Cancel not allowed' : 'Cancel status unknown'
   return (
-    <section className="mds-tms-delivery">
-      <div className="mds-tms-delivery__heading">
+    <section className="ih-lifecycle">
+      <div className="ih-lifecycle__now">
         <div>
-          <span className="mds-eyebrow">Booking lifecycle</span>
-          <h3>Where is {lifecycle.booking_id} in the workflow?</h3>
-          <p>{lifecycle.summary}</p>
+          <span className="ih-kicker">Where the booking is</span>
+          <h3>{lifecycle.booking_id}</h3>
         </div>
-        <Tag appearance={tagAppearance}>{lifecycle.headline_tag || lifecycle.work_process_status}</Tag>
       </div>
-      <div className="mds-tms-timeline">
-        {(lifecycle.steps || []).map(step => (
-          <div key={step.label} className={`mds-tms-step${step.state === 'done' ? ' mds-tms-step--done' : ''}${step.state === 'active' ? ' mds-tms-step--active' : ''}${step.state === 'failed' ? ' mds-tms-step--failed' : ''}`}>
-            <span>{step.mark}</span>
-            <strong>{step.label}</strong>
-            <small>{step.detail}</small>
-          </div>
-        ))}
-      </div>
-      {lifecycle.transport_orders?.length > 0 && (
-        <div className="mds-tms-order-grid">
-          {lifecycle.transport_orders.map(order => (
-            <article key={order.number}>
-              <div>
-                <code>{order.number}</code>
-                <Tag appearance={order.acknowledgement === 'ACCEPTED' ? 'success' : 'warning'} fit="small">{order.acknowledgement}</Tag>
-              </div>
-              <small>Version {order.version} · {order.received_at ? `Received ${new Date(order.received_at).toLocaleTimeString()}` : 'No acknowledgement received'}</small>
-            </article>
+      <p className="ih-lifecycle__summary">{lifecycle.summary}</p>
+      {lifecycle.steps?.length > 0 && (
+        <div className="ih-stage-dots" aria-label="Booking stages">
+          {lifecycle.steps.map(step => (
+            <span
+              key={step.label}
+              className={`ih-stage-dot ih-stage-dot--${step.state}`}
+              title={`${step.label}: ${step.detail}`}
+            />
           ))}
         </div>
       )}
-      {lifecycle.transport_orders?.length > 0 && pending > 0 && (
-        <p className="mds-hint" style={{ marginTop: '0.75rem' }}>{pending} transport order{pending === 1 ? '' : 's'} still waiting on TMS feedback.</p>
+      {current && <p className="ih-stage-caption">{current.label}</p>}
+      <QuietDetails title="Full booking path" hint={current?.label}>
+        <div className="mds-tms-timeline">
+          {(lifecycle.steps || []).map(step => (
+            <div key={step.label} className={`mds-tms-step${step.state === 'done' ? ' mds-tms-step--done' : ''}${step.state === 'active' ? ' mds-tms-step--active' : ''}${step.state === 'failed' ? ' mds-tms-step--failed' : ''}`}>
+              <span>{step.mark}</span>
+              <strong>{step.label}</strong>
+              <small>{step.detail}</small>
+            </div>
+          ))}
+        </div>
+      </QuietDetails>
+      {lifecycle.transport_orders?.length > 0 && (
+        <QuietDetails title="Transport orders" hint={pending > 0 ? `${pending} waiting` : 'Acknowledged'}>
+          <div className="mds-tms-order-grid">
+            {lifecycle.transport_orders.map(order => (
+              <article key={order.number}>
+                <div>
+                  <code>{order.number}</code>
+                  <Tag appearance={order.acknowledgement === 'ACCEPTED' ? 'success' : 'warning'} fit="small">{order.acknowledgement}</Tag>
+                </div>
+                <small>Version {order.version} · {order.received_at ? `Received ${new Date(order.received_at).toLocaleTimeString()}` : 'No acknowledgement received'}</small>
+              </article>
+            ))}
+          </div>
+        </QuietDetails>
       )}
       {cancel && (
-        <div className="mds-tms-cancel">
-          <div className="mds-tms-cancel__heading">
-            <strong>Cancellation check (P6 + P13)</strong>
-            <Tag appearance={cancelAppearance} fit="small">{cancelLabel}</Tag>
-          </div>
-          <ul>
+        <QuietDetails title={cancelLabel} hint="P6 + P13">
+          <ul className="ih-cancel-list">
             <li>P6 executed: {cancel.p6?.executed == null ? 'unknown' : cancel.p6.executed ? 'yes — blocked' : 'no'}</li>
             <li>P6 cargo facility date reached: {cancel.p6?.cargo_facility_date_reached == null ? 'unknown' : cancel.p6.cargo_facility_date_reached ? 'yes — blocked' : 'no'}</li>
             <li>P13 any container executed: {cancel.p13?.any_container_executed == null ? 'unknown' : cancel.p13.any_container_executed ? 'yes — blocked' : 'no'}</li>
             <li>P13 ETA passed: {cancel.p13?.eta_passed == null ? 'unknown' : cancel.p13.eta_passed ? 'yes — blocked' : 'no'}</li>
           </ul>
           {(cancel.notes || []).map(note => <p key={note} className="mds-hint">{note}</p>)}
+        </QuietDetails>
+      )}
+    </section>
+  )
+}
+
+function RecommendedSolution({ solution }) {
+  if (!solution) return null
+  const route = (solution.status || '').includes('L2') ? 'L2' : 'L1'
+  return (
+    <section className="ih-solution">
+      <div className="ih-solution__head">
+        <h3>{solution.headline}</h3>
+        <span className="ih-quiet">{route} · {Math.round((solution.final_confidence || 0) * 100)}%</span>
+      </div>
+      {solution.root_cause && solution.root_cause !== solution.headline && (
+        <div className="ih-solution__block">
+          <span>Root cause</span>
+          <p>{solution.root_cause}</p>
         </div>
+      )}
+      {solution.recommended_solution && (
+        <div className="ih-solution__block">
+          <span>What to do</span>
+          <p>{solution.recommended_solution}</p>
+        </div>
+      )}
+      {solution.code_change && (
+        <QuietDetails title="Proposed code change" hint={`${solution.code_change.file}:${solution.code_change.line}`}>
+          <div className="mds-code-fix">
+            <code>{solution.code_change.repository}/{solution.code_change.file}:{solution.code_change.line}</code>
+            <dl>
+              <div><dt>Symbol</dt><dd>{solution.code_change.symbol}</dd></div>
+              <div><dt>Problem</dt><dd>{solution.code_change.problem}</dd></div>
+              <div><dt>Proposed fix</dt><dd>{solution.code_change.fix}</dd></div>
+            </dl>
+          </div>
+        </QuietDetails>
+      )}
+      {solution.agents?.length > 0 && (
+        <QuietDetails title="Agent notes" hint={`${solution.agents.length} step${solution.agents.length === 1 ? '' : 's'}`}>
+          <div className={`mds-agent-path${solution.agents.length === 1 ? ' mds-agent-path--single' : ''}`}>
+            {solution.agents.map((agent, index) => (
+              <React.Fragment key={agent.level}>
+                {index > 0 && <span className="mds-agent-path__arrow">→</span>}
+                <article className={`mds-agent-card mds-agent-card--${(agent.decision || '').toLowerCase()}`}>
+                  <div className="mds-agent-card__head">
+                    <span>{agent.level}</span>
+                    <strong>{agent.name}</strong>
+                    <Tag appearance={agent.decision === 'RECOMMENDED' ? 'success' : 'warning'} fit="small">{agent.decision}</Tag>
+                  </div>
+                  <p>{agent.summary}</p>
+                  <small>{agent.basis}</small>
+                </article>
+              </React.Fragment>
+            ))}
+          </div>
+        </QuietDetails>
       )}
     </section>
   )
@@ -1177,25 +1218,18 @@ function ApproveSummary({ incidentNumber, recommendation, patternText, service }
   }
 
   return (
-    <section className="mds-assignment-panel">
-      <div className="mds-assignment-panel__head">
-        <div>
-          <span className="mds-eyebrow">Resolver summary</span>
-          <h3>Approve for the knowledge bank</h3>
-        </div>
-        <Tag appearance="info" fit="small">Human approval required</Tag>
-      </div>
+    <section className="ih-approve">
+      <h3>Approve for the knowledge bank</h3>
       <label htmlFor={`sum-${incidentNumber}`}>Headline</label>
       <textarea id={`sum-${incidentNumber}`} value={summary} rows={2} onChange={e => { setSummary(e.target.value); setSaved(null) }} />
       <label htmlFor={`rc-${incidentNumber}`}>Root cause</label>
       <textarea id={`rc-${incidentNumber}`} value={rootCause} rows={3} onChange={e => { setRootCause(e.target.value); setSaved(null) }} />
       <label htmlFor={`fix-${incidentNumber}`}>Suggested fix</label>
       <textarea id={`fix-${incidentNumber}`} value={fix} rows={3} onChange={e => { setFix(e.target.value); setSaved(null) }} />
-      <div className="mds-assignment-panel__actions">
-        <Btn appearance="primary" fit="small" disabled={saving || !rootCause.trim() || !fix.trim() || !!saved} onClick={approve}>
-          {saving ? <><Spinner /> Saving…</> : saved ? 'Approved & stored' : 'Approve summary'}
+      <div className="ih-approve__actions">
+        <Btn appearance="primary" disabled={saving || !rootCause.trim() || !fix.trim() || !!saved} onClick={approve}>
+          {saving ? <><Spinner /> Saving…</> : saved ? 'Approved' : 'Approve summary'}
         </Btn>
-        <small>Stores the approved wording as a verified RAG entry for the next similar incident.</small>
       </div>
       {error && <Notification appearance="error" heading="Could not save">{error}</Notification>}
       {saved && (
@@ -1217,14 +1251,8 @@ function SuggestedAssignment({ incidentNumber, assignment, mockMode }) {
   }
 
   return (
-    <section className="mds-assignment-panel">
-      <div className="mds-assignment-panel__head">
-        <div>
-          <span className="mds-eyebrow">Suggested ownership</span>
-          <h3>Assign to {assignment.team}</h3>
-        </div>
-        <Tag appearance="info" fit="small">Human approval required</Tag>
-      </div>
+    <div className="ih-assign">
+      <p>Assign to <strong>{assignment.team}</strong></p>
       <label htmlFor={`assignment-reason-${incidentNumber}`}>Reason to add to the incident</label>
       <textarea
         id={`assignment-reason-${incidentNumber}`}
@@ -1232,15 +1260,147 @@ function SuggestedAssignment({ incidentNumber, assignment, mockMode }) {
         onChange={event => { setReason(event.target.value); setUpdated(false) }}
         rows={3}
       />
-      <div className="mds-assignment-panel__actions">
+      <div className="ih-approve__actions">
         <Btn appearance="primary" fit="small" disabled={!reason.trim() || updated} onClick={applyAssignment}>
           {updated ? 'Assignment recorded' : 'Assign & update incident'}
         </Btn>
         <small>{mockMode ? 'Demo mode — preview recorded locally; ServiceNow was not changed.' : `This will assign ${incidentNumber} and add the reason as a work note.`}</small>
       </div>
       {updated && <Notification appearance="success" heading={`Suggested assignment: ${assignment.team}`}>{reason}</Notification>}
-    </section>
+    </div>
   )
+}
+
+function EvidenceList({ identifiers, evidence, lokiResults }) {
+  const idEntries = Object.entries(identifiers || {})
+  const hasIds = idEntries.some(([, values]) => values?.length)
+  const hasEvidence = (evidence || []).length > 0
+  const hasLoki = lokiResults && Object.keys(lokiResults).length > 0
+  if (!hasIds && !hasEvidence && !hasLoki) {
+    return <p className="mds-hint">No related identifiers or logs on this incident.</p>
+  }
+  return (
+    <div className="ih-evidence">
+      {hasIds && (
+        <div className="mds-relevance-strip">
+          {idEntries.flatMap(([type, values]) => (values || []).map(value => (
+            <span key={`${type}-${value}`}><small>{ID_TYPE_LABELS[type] || type}</small><code>{value}</code></span>
+          )))}
+        </div>
+      )}
+      {(evidence || []).map((group, index) => (
+        <details className="mds-evidence-group" key={`${group.matched_identifier}-${group.service}-${index}`}>
+          <summary>
+            <strong>{group.service}</strong>
+            <span>{group.namespace}</span>
+            <Badge fit="small">{group.count}</Badge>
+            <code>{group.matched_identifier}</code>
+          </summary>
+          <div className="mds-evidence-logs">
+            {group.logs.map((log, logIndex) => (
+              <div key={logIndex}><span>{log.ts || 'time unavailable'}</span><code>{log.message}</code></div>
+            ))}
+          </div>
+        </details>
+      ))}
+      {hasLoki && Object.entries(identifiers || {}).map(([type, values]) =>
+        values.map(val => {
+          const res = lokiResults[val]
+          const serviceGroups = [...(res?.services || []), ...(res?.trace_issues || [])]
+          const issues = serviceGroups.flatMap(group =>
+            (group.problems || []).map(log => ({
+              namespace: log.namespace || group.namespace,
+              service: log.service || group.service,
+              text: log.message || '',
+            }))
+          )
+          const nsCount = new Set(issues.map(issue => issue.namespace).filter(Boolean)).size
+          const hasError = !!res?.error
+          return (
+            <div key={`${type}-${val}`} className="mds-incident-id-block">
+              <div className="mds-incident-id-block__header">
+                <span className="mds-incident-id-type">{ID_TYPE_LABELS[type] || type}</span>
+                <code className="mds-incident-id-value">{val}</code>
+                {hasError
+                  ? <Tag appearance="error" fit="small">Search error</Tag>
+                  : issues.length === 0
+                    ? <span className="ih-quiet">No issues found</span>
+                    : <span className="ih-quiet">{issues.length} issue{issues.length !== 1 ? 's' : ''} · {nsCount} namespace{nsCount !== 1 ? 's' : ''}</span>
+                }
+              </div>
+              {hasError && <p className="mds-error" style={{ marginTop: 4, fontSize: '0.8rem' }}>{res.error}</p>}
+              {issues.length > 0 && (
+                <div className="mds-incident-issues">
+                  {issues.map((issue, i) => (
+                    <div key={i} className="mds-incident-issue-row">
+                      <span className="mds-incident-issue-ns">{issue.namespace}</span>
+                      <span className="mds-incident-issue-svc">{issue.service}</span>
+                      <span className="mds-incident-issue-text">{issue.text}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })
+      )}
+    </div>
+  )
+}
+
+function InvestigationBody({ item, mockMode, lokiResults }) {
+  const incident = item.incident || {}
+  const lifecycle = item.booking_lifecycle || item.tms_delivery
+  const evidenceCount = (item.evidence || []).length
+  const actionCount = (item.actions || []).length
+  return (
+    <div className="ih-investigate">
+      {lifecycle && <BookingLifecycle lifecycle={lifecycle} />}
+      <RecommendedSolution solution={item.agent_solution} />
+      {item.recommendation && (
+        <ApproveSummary
+          incidentNumber={incident.number}
+          recommendation={item.recommendation}
+          patternText={item.pattern_text}
+          service={item.resolver_service}
+        />
+      )}
+      {item.suggested_assignment && (
+        <QuietDetails title={`Assign to ${item.suggested_assignment.team}`}>
+          <SuggestedAssignment incidentNumber={incident.number} assignment={item.suggested_assignment} mockMode={mockMode} />
+        </QuietDetails>
+      )}
+      <QuietDetails title="Evidence" hint={evidenceCount ? `${evidenceCount} service group${evidenceCount === 1 ? '' : 's'}` : 'identifiers'}>
+        <EvidenceList identifiers={item.identifiers} evidence={item.evidence} lokiResults={lokiResults} />
+      </QuietDetails>
+      {actionCount > 0 && (
+        <QuietDetails title="Suggested next steps" hint={`${actionCount}`}>
+          <div className="mds-action-grid">
+            {item.actions.map((action, index) => (
+              <article key={index}>
+                <span className={`mds-action-kind mds-action-kind--${action.kind}`}>{action.kind}</span>
+                <strong>{action.title}</strong>
+                <p>{action.detail}</p>
+              </article>
+            ))}
+          </div>
+        </QuietDetails>
+      )}
+      {item.pipeline?.length > 0 && (
+        <QuietDetails title="How this was analysed" hint={pipelineHint(item.pipeline)}>
+          <ResolverPipeline steps={item.pipeline} />
+        </QuietDetails>
+      )}
+    </div>
+  )
+}
+
+function incidentRowHint(item) {
+  const life = item.booking_lifecycle || item.tms_delivery
+  if (life?.headline_tag) return life.headline_tag
+  if ((item.agent_solution?.status || '').includes('L2')) return 'Code issue'
+  if ((item.agent_solution?.status || '').includes('L1')) return 'Runbook'
+  return item.incident?.priority || ''
 }
 
 function IncidentView() {
@@ -1277,59 +1437,34 @@ function IncidentView() {
 
   const inc = result?.incident
   const groupIncidents = result?.incidents || []
-  const identifiers = result?.identifiers || {}
-  const lokiResults = result?.loki_results || {}
-  const hasIdentifiers = Object.keys(identifiers).length > 0
+  const mockMode = snowStatus?.auth_mode === 'mock'
 
   return (
     <div className="mds-incident-view">
-      <PageIntro
-        eyebrow="Incident workspace"
-        title="Move from alert to action"
-        description="Bring together ServiceNow context, business identifiers, related logs and feasible response actions in one investigation."
-      >
-        <div className="mds-page-intro__signal"><span /> Evidence-backed relevance</div>
-        <div className="mds-page-intro__signal"><span /> Human-reviewed actions</div>
-      </PageIntro>
-      <div className="mds-incident-search-bar">
-        <div className="mds-incident-search-bar__title">
-          <span className="mds-incident-search-bar__icon">◎</span>
-          <div><strong>Open an investigation</strong><small>Search a team queue or a specific incident</small></div>
-          {snowStatus && !snowStatus.configured && (
-            <Tag appearance="warning" fit="small" style={{ marginLeft: 8 }}>SNOW not configured</Tag>
-          )}
-          {snowStatus?.auth_mode === 'mock' && (
-            <Tag appearance="warning" fit="small">Demo data</Tag>
-          )}
-          {snowStatus?.configured && snowStatus?.auth_mode === 'client_credentials' && (
-            <Tag appearance="success" fit="small">ServiceNow connected</Tag>
-          )}
-        </div>
-        <div className="mds-incident-search-bar__inputs">
-          <select className="mds-native-select mds-native-select--sm" value={mode} onChange={e => { setMode(e.target.value); setResult(null) }}>
-            <option value="group">Assignment group</option>
-            <option value="incident">Incident number</option>
-          </select>
-          <input
-            className="mds-search-input"
-            placeholder={mode === 'group' ? 'Group name e.g. Booking Platform' : 'Incident number e.g. INC0012345'}
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            onKeyDown={handleKey}
-            style={{ width: 260 }}
-          />
-          <Btn variant="filled" appearance="primary" fit="small" disabled={loading || !query.trim()} onClick={search}>
-            {loading ? <><Spinner /> Searching…</> : 'Search'}
-          </Btn>
-        </div>
-        {mode === 'group' && (
-          <div className="mds-group-shortcuts">
-            <span>Assignment groups</span>
-            {['Booking Platform', 'Billing Platform'].map(group => (
-              <button key={group} onClick={() => { setQuery(group); search(group) }}>{group}</button>
-            ))}
-          </div>
-        )}
+      <div className="ih-page-head">
+        <h1>Incidents</h1>
+        <p>Find a stuck booking, see what to do, and approve the summary.</p>
+      </div>
+
+      <div className="ih-search">
+        <select className="mds-native-select mds-native-select--sm" value={mode} onChange={e => { setMode(e.target.value); setResult(null) }} aria-label="Search by">
+          <option value="group">Assignment group</option>
+          <option value="incident">Incident number</option>
+        </select>
+        <input
+          className="mds-text-input ih-search__input"
+          placeholder={mode === 'group' ? 'Booking Platform' : 'INC0012345'}
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          onKeyDown={handleKey}
+        />
+        <Btn variant="filled" appearance="primary" disabled={loading || !query.trim()} onClick={search}>
+          {loading ? <><Spinner /> Searching…</> : 'Search'}
+        </Btn>
+        {mode === 'group' && ['Booking Platform', 'Billing Platform'].map(group => (
+          <button key={group} className="ih-chip" onClick={() => { setQuery(group); search(group) }}>{group}</button>
+        ))}
+        {snowStatus && !snowStatus.configured && <span className="ih-quiet ih-quiet--warn">ServiceNow not configured</span>}
       </div>
 
       {error && (
@@ -1341,142 +1476,27 @@ function IncidentView() {
       )}
 
       {!result && !loading && !error && (
-        <p className="mds-hint" style={{ padding: '2rem' }}>
-          Search an assignment group to see its active incidents, relevant log evidence and feasible response actions. You can also investigate one incident number.
-        </p>
+        <p className="ih-empty">Search a group or incident number to start.</p>
       )}
 
       {result?.group && (
         <div className="mds-group-results">
-          <div className="mds-group-overview">
-            <div>
-              <span className="mds-eyebrow">Assignment group</span>
-              <h2>{result.group}</h2>
-              <p>Active incidents correlated against the last {result.minutes / 60} hours of logs.</p>
-            </div>
-            <div className="mds-group-metrics">
-              <div><strong>{result.incident_count}</strong><span>Active incidents</span></div>
-              <div><strong>{result.relevant_count}</strong><span>With evidence</span></div>
-              <div><strong>{result.incident_count - result.relevant_count}</strong><span>Need triage</span></div>
-            </div>
+          <div className="ih-group-head">
+            <h2>{result.group}</h2>
+            <p>{result.incident_count} incident{result.incident_count === 1 ? '' : 's'} · {result.relevant_count} with log evidence</p>
           </div>
 
           {groupIncidents.length === 0 && <Notification appearance="info" heading="No active incidents">No active incidents were found for this assignment group.</Notification>}
           <div className="mds-group-incident-list">
             {groupIncidents.map(item => (
-              <details className="mds-group-incident" key={item.incident.number} open={item.relevance === 'high'}>
+              <details className="mds-group-incident" key={item.incident.number}>
                 <summary>
-                  <div className="mds-group-incident__identity">
-                    <code>{item.incident.number}</code>
-                    <Tag appearance={item.relevance === 'high' ? 'error' : 'neutral'} fit="small">
-                      {item.relevance === 'high' ? 'Relevant evidence' : 'Unconfirmed'}
-                    </Tag>
-                    <Tag appearance="neutral" fit="small">{item.incident.priority}</Tag>
-                  </div>
+                  <span className="ih-id">{item.incident.number}</span>
                   <strong>{item.incident.short_description}</strong>
-                  <span>{item.evidence.length} correlated service group{item.evidence.length === 1 ? '' : 's'}</span>
+                  <span className="ih-row-hint">{incidentRowHint(item)}</span>
                 </summary>
                 <div className="mds-group-incident__body">
-                  <ResolverPipeline steps={item.pipeline} />
-                  {item.agent_solution && (
-                    <section className="mds-agent-solution">
-                      <div className="mds-agent-solution__top">
-                        <div>
-                          <span className="mds-eyebrow">Recommended solution</span>
-                          <h3>{item.agent_solution.headline}</h3>
-                        </div>
-                        <div className="mds-confidence-score">
-                          <strong>{Math.round(item.agent_solution.final_confidence * 100)}%</strong>
-                          <span>confidence</span>
-                        </div>
-                      </div>
-                      <div className={`mds-agent-path${item.agent_solution.agents.length === 1 ? ' mds-agent-path--single' : ''}`}>
-                        {item.agent_solution.agents.map((agent, index) => (
-                          <React.Fragment key={agent.level}>
-                            {index > 0 && <span className="mds-agent-path__arrow">→</span>}
-                            <article className={`mds-agent-card mds-agent-card--${agent.decision.toLowerCase()}`}>
-                              <div className="mds-agent-card__head">
-                                <span>{agent.level}</span>
-                                <strong>{agent.name}</strong>
-                                <Tag appearance={agent.decision === 'RECOMMENDED' ? 'success' : 'warning'} fit="small">{agent.decision}</Tag>
-                              </div>
-                              <div className="mds-agent-card__confidence">
-                                <div><span style={{ width: `${agent.confidence * 100}%` }} /></div>
-                                <strong>{Math.round(agent.confidence * 100)}%</strong>
-                              </div>
-                              <p>{agent.summary}</p>
-                              <small>{agent.basis}</small>
-                            </article>
-                          </React.Fragment>
-                        ))}
-                      </div>
-                      <div className="mds-agent-conclusion">
-                        <div><strong>Root cause</strong><p>{item.agent_solution.root_cause}</p></div>
-                        <div><strong>Recommended steps</strong><p>{item.agent_solution.recommended_solution}</p></div>
-                      </div>
-                      {item.agent_solution.code_change && (
-                        <div className="mds-code-fix">
-                          <div className="mds-code-fix__title"><span>⌘</span><strong>Exact code change from L2</strong><Tag appearance="info" fit="small">Line {item.agent_solution.code_change.line}</Tag></div>
-                          <code>{item.agent_solution.code_change.repository}/{item.agent_solution.code_change.file}:{item.agent_solution.code_change.line}</code>
-                          <dl>
-                            <div><dt>Symbol</dt><dd>{item.agent_solution.code_change.symbol}</dd></div>
-                            <div><dt>Problem</dt><dd>{item.agent_solution.code_change.problem}</dd></div>
-                            <div><dt>Proposed fix</dt><dd>{item.agent_solution.code_change.fix}</dd></div>
-                          </dl>
-                        </div>
-                      )}
-                    </section>
-                  )}
-                  <ApproveSummary
-                    incidentNumber={item.incident.number}
-                    recommendation={item.recommendation}
-                    patternText={item.pattern_text}
-                    service={item.resolver_service}
-                  />
-                  {item.suggested_assignment && (
-                    <SuggestedAssignment incidentNumber={item.incident.number} assignment={item.suggested_assignment} mockMode={snowStatus?.auth_mode === 'mock'} />
-                  )}
-                  <BookingLifecycle lifecycle={item.booking_lifecycle || item.tms_delivery} />
-                  <section>
-                    <h3>What is relevant</h3>
-                    <div className="mds-relevance-strip">
-                      {Object.entries(item.identifiers).flatMap(([type, values]) => values.map(value => (
-                        <span key={`${type}-${value}`}><small>{ID_TYPE_LABELS[type] || type}</small><code>{value}</code></span>
-                      )))}
-                      {Object.keys(item.identifiers).length === 0 && <p className="mds-hint">No business identifiers were extracted from this incident.</p>}
-                    </div>
-                  </section>
-                  <section>
-                    <h3>Related log evidence</h3>
-                    {item.evidence.length === 0 && <p className="mds-hint">No related error logs found in this window.</p>}
-                    {item.evidence.map((group, index) => (
-                      <details className="mds-evidence-group" key={`${group.matched_identifier}-${group.service}-${index}`}>
-                        <summary>
-                          <strong>{group.service}</strong>
-                          <span>{group.namespace}</span>
-                          <Badge fit="small">{group.count}</Badge>
-                          <code>{group.matched_identifier}</code>
-                        </summary>
-                        <div className="mds-evidence-logs">
-                          {group.logs.map((log, logIndex) => (
-                            <div key={logIndex}><span>{log.ts || 'time unavailable'}</span><code>{log.message}</code></div>
-                          ))}
-                        </div>
-                      </details>
-                    ))}
-                  </section>
-                  <section>
-                    <h3>Feasible actions</h3>
-                    <div className="mds-action-grid">
-                      {item.actions.map((action, index) => (
-                        <article key={index}>
-                          <span className={`mds-action-kind mds-action-kind--${action.kind}`}>{action.kind}</span>
-                          <strong>{action.title}</strong>
-                          <p>{action.detail}</p>
-                        </article>
-                      ))}
-                    </div>
-                  </section>
+                  <InvestigationBody item={item} mockMode={mockMode} />
                 </div>
               </details>
             ))}
@@ -1485,120 +1505,33 @@ function IncidentView() {
       )}
 
       {inc && (
-        <div className="mds-incident-details">
-          <div className="mds-incident-header">
-            <div className="mds-incident-header__left">
-              <span className="mds-incident-number">{inc.number}</span>
-              <span className="mds-incident-state" style={{ color: SNOW_STATE_COLOUR[inc.state] || 'inherit' }}>
-                ● {inc.state}
-              </span>
-              {inc.priority && <Tag appearance="neutral" fit="small">{inc.priority}</Tag>}
+        <div className="ih-single">
+          <div className="ih-single__head">
+            <div>
+              <span className="ih-id">{inc.number}</span>
+              <h2>{inc.short_description}</h2>
             </div>
-            <div className="mds-incident-header__right mds-hint">
-              {inc.assignment_group && <span>👥 {inc.assignment_group}</span>}
-              {inc.opened_at && <span>🕐 {new Date(inc.opened_at).toLocaleString()}</span>}
+            <div className="ih-single__meta">
+              <span style={{ color: SNOW_STATE_COLOUR[inc.state] || 'inherit' }}>{inc.state}</span>
+              {inc.priority && <span>{inc.priority}</span>}
+              {inc.assignment_group && <span>{inc.assignment_group}</span>}
             </div>
           </div>
-          <p className="mds-incident-description">{inc.short_description}</p>
           {inc.description && inc.description !== inc.short_description && (
-            <details className="mds-incident-detail-block">
-              <summary className="mds-hint">Full description</summary>
+            <QuietDetails title="Full description">
               <pre className="mds-incident-pre">{inc.description}</pre>
-            </details>
+            </QuietDetails>
           )}
           {inc.close_notes && (
-            <details className="mds-incident-detail-block">
-              <summary className="mds-hint">Resolution notes</summary>
+            <QuietDetails title="Resolution notes">
               <pre className="mds-incident-pre">{inc.close_notes}</pre>
-            </details>
+            </QuietDetails>
           )}
-        </div>
-      )}
-
-      {inc && result?.pipeline && <ResolverPipeline steps={result.pipeline} />}
-
-      {inc && result?.booking_lifecycle && <BookingLifecycle lifecycle={result.booking_lifecycle} />}
-
-      {inc && result?.agent_solution && (
-        <div className="mds-direct-solution">
-          <div>
-            <span className="mds-eyebrow">{result.agent_solution.status.replace('_', ' ')}</span>
-            <h3>{result.agent_solution.headline}</h3>
-            <p><strong>Root cause:</strong> {result.agent_solution.root_cause}</p>
-            <p><strong>Recommended solution:</strong> {result.agent_solution.recommended_solution}</p>
-            {result.agent_solution.code_change && (
-              <code>{result.agent_solution.code_change.repository}/{result.agent_solution.code_change.file}:{result.agent_solution.code_change.line}</code>
-            )}
-          </div>
-          <div className="mds-confidence-score"><strong>{Math.round(result.agent_solution.final_confidence * 100)}%</strong><span>confidence</span></div>
-        </div>
-      )}
-
-      {inc && result?.recommendation && (
-        <ApproveSummary
-          incidentNumber={inc.number}
-          recommendation={result.recommendation}
-          patternText={result.pattern_text}
-          service={result.resolver_service}
-        />
-      )}
-
-      {inc && result?.suggested_assignment && (
-        <SuggestedAssignment incidentNumber={inc.number} assignment={result.suggested_assignment} mockMode={snowStatus?.auth_mode === 'mock'} />
-      )}
-
-      {inc && !hasIdentifiers && (
-        <Notification appearance="warning" heading="No identifiers found">
-          Could not extract any booking, container, BOL or invoice numbers from this incident. You can use Search by Key tab to search manually.
-        </Notification>
-      )}
-
-      {hasIdentifiers && (
-        <div className="mds-incident-identifiers">
-          <h3 className="mds-section__title" style={{ padding: '0 0 .5rem' }}>
-          Extracted identifiers — searching all available logs in Grafana
-          </h3>
-          {Object.entries(identifiers).map(([type, values]) =>
-            values.map(val => {
-              const res = lokiResults[val]
-              const serviceGroups = [...(res?.services || []), ...(res?.trace_issues || [])]
-              const issues = serviceGroups.flatMap(group =>
-                (group.problems || []).map(log => ({
-                  namespace: log.namespace || group.namespace,
-                  service: log.service || group.service,
-                  text: log.message || '',
-                }))
-              )
-              const nsCount = new Set(issues.map(issue => issue.namespace).filter(Boolean)).size
-              const hasError = !!res?.error
-              return (
-                <div key={`${type}-${val}`} className="mds-incident-id-block">
-                  <div className="mds-incident-id-block__header">
-                    <span className="mds-incident-id-type">{ID_TYPE_LABELS[type] || type}</span>
-                    <code className="mds-incident-id-value">{val}</code>
-                    {hasError
-                      ? <Tag appearance="error" fit="small">Search error</Tag>
-                      : issues.length === 0
-                        ? <Tag appearance="neutral" fit="small">No issues found</Tag>
-                        : <Tag appearance="error" fit="small">{issues.length} issue{issues.length !== 1 ? 's' : ''} across {nsCount} namespace{nsCount !== 1 ? 's' : ''}</Tag>
-                    }
-                  </div>
-                  {hasError && <p className="mds-error" style={{ marginTop: 4, fontSize: '0.8rem' }}>{res.error}</p>}
-                  {issues.length > 0 && (
-                    <div className="mds-incident-issues">
-                      {issues.map((issue, i) => (
-                        <div key={i} className="mds-incident-issue-row">
-                          <span className="mds-incident-issue-ns">{issue.namespace}</span>
-                          <span className="mds-incident-issue-svc">{issue.service}</span>
-                          <span className="mds-incident-issue-text">{issue.text}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )
-            })
-          )}
+          <InvestigationBody
+            item={result}
+            mockMode={mockMode}
+            lokiResults={result?.loki_results || {}}
+          />
         </div>
       )}
     </div>
@@ -1625,19 +1558,18 @@ function DashboardView() {
   useEffect(() => { getVibeUsage().then(setVibeUsage).catch(() => {}) }, [])
 
   const ACTION_LABELS = {
-    login: '🔑 Logins',
-    search: '🔎 Searches',
-    analyze: '🤖 Analyses',
-    namespace_change: '🗂 NS Changes',
+    login: 'Logins',
+    search: 'Searches',
+    analyze: 'Analyses',
+    namespace_change: 'Namespace changes',
   }
 
   return (
     <div className="mds-dashboard">
       <div className="mds-dashboard__toolbar">
         <div className="mds-dashboard__heading">
-          <span className="mds-page-intro__eyebrow">Incident operations</span>
-          <h2 className="mds-dashboard__title">Handling dashboard</h2>
-          <p>Investigation activity, evidence queries and AI-assisted analyses.</p>
+          <h2 className="mds-dashboard__title">Dashboard</h2>
+          <p>Investigation activity over the selected period.</p>
         </div>
         <select
           className="mds-native-select mds-native-select--sm"
@@ -1649,18 +1581,15 @@ function DashboardView() {
           ))}
         </select>
         <button className="mds-btn mds-btn--ghost mds-btn--sm" onClick={() => load(hours)} disabled={loading}>
-          {loading ? '…' : '↻ Refresh'}
+          {loading ? 'Refreshing…' : 'Refresh'}
         </button>
       </div>
 
       {error && <p className="mds-error">{error}</p>}
 
       {vibeUsage && !vibeUsage.error && (
+        <QuietDetails title="API budget" hint={vibeUsage.key_alias}>
         <div className="mds-vibe-usage-card">
-          <div className="mds-vibe-usage-card__header">
-            <span className="mds-vibe-usage-card__title">🔑 Vibe Proxy API Key — {vibeUsage.key_alias}</span>
-            <span className="mds-vibe-usage-card__models">{vibeUsage.models?.join(', ')}</span>
-          </div>
           <div className="mds-vibe-usage-card__body">
             <div className="mds-vibe-usage-metric">
               <span className="mds-vibe-usage-metric__label">Spent</span>
@@ -1700,6 +1629,7 @@ function DashboardView() {
             </div>
           )}
         </div>
+        </QuietDetails>
       )}
 
       {data && (
@@ -1759,9 +1689,10 @@ function DashboardView() {
             </div>
           </div>
 
+          <QuietDetails title="API usage">
           <div className="mds-dashboard__row">
             <div className="mds-dashboard__panel">
-              <h3 className="mds-dashboard__panel-title">🤖 OpenAI Token Usage</h3>
+              <h3 className="mds-dashboard__panel-title">OpenAI token usage</h3>
               {!data.api_usage?.filter(u => u.api === 'openai').length
                 ? <p className="mds-hint">No OpenAI calls yet.</p>
                 : (() => {
@@ -1795,7 +1726,7 @@ function DashboardView() {
             </div>
 
             <div className="mds-dashboard__panel">
-              <h3 className="mds-dashboard__panel-title">📡 Grafana API Calls</h3>
+              <h3 className="mds-dashboard__panel-title">Grafana queries</h3>
               {!data.api_usage?.filter(u => u.api === 'grafana').length
                 ? <p className="mds-hint">No Grafana calls recorded yet.</p>
                 : (() => {
@@ -1825,6 +1756,7 @@ function DashboardView() {
               }
             </div>
           </div>
+          </QuietDetails>
 
           <div className="mds-dashboard__panel mds-dashboard__panel--full">
             <h3 className="mds-dashboard__panel-title">Recent incident-handling activity</h3>
@@ -1858,7 +1790,7 @@ function AppShell({ ssoEnabled }) {
   const [status, setStatus] = useState(null)
   const [namespaces, setNamespaces] = useState([])
   const [switching, setSwitching] = useState(false)
-  const [tab, setTab] = useState('search')
+  const [tab, setTab] = useState('incident')
 
   useEffect(() => {
     getStatus().then(setStatus).catch((e) => console.error('getStatus failed:', e))
@@ -1886,17 +1818,21 @@ function AppShell({ ssoEnabled }) {
     }
   }
 
-  const workspace = (isAdmin) => (
+  const workspace = (isAdmin) => {
+    const tabs = isAdmin ? TABS : TABS.filter((item) => item.value === 'search')
+    const active = tabs.some((item) => item.value === tab) ? tab : 'search'
+    return (
     <div className="mds-app">
       <Header status={status} namespaces={namespaces} onChangeNs={onChangeNs} switching={switching} ssoEnabled={ssoEnabled} />
-      <TabBar value={tab} onChange={setTab} tabs={isAdmin ? TABS : TABS.filter((item) => item.value === 'search')} />
+      <TabBar value={active} onChange={setTab} tabs={tabs} />
       <main className="mds-app__content mds-workspace">
-        {tab === 'search' && <SearchView />}
-        {tab === 'incident' && isAdmin && <IncidentView />}
-        {tab === 'dashboard' && isAdmin && <DashboardView />}
+        {active === 'search' && <SearchView />}
+        {active === 'incident' && isAdmin && <IncidentView />}
+        {active === 'dashboard' && isAdmin && <DashboardView />}
       </main>
     </div>
-  )
+    )
+  }
 
   if (!ssoEnabled) {
     return workspace(true)
