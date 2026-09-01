@@ -14,9 +14,14 @@ from .models import LogEntry
 log = logging.getLogger(__name__)
 
 def _cluster_selector() -> str:
-    """Return a k8s_cluster label matcher covering all configured clusters.
-    Used as the mandatory second label in every Loki query."""
+    """Return a k8s_cluster label matcher covering the configured clusters.
+    Used as the mandatory second label in every Loki query.
+
+    An empty K8S_CLUSTERS means "every cluster": the matcher becomes
+    k8s_cluster=~".+", which still counts toward Loki's 2-label minimum."""
     clusters = settings.k8s_cluster_list
+    if not clusters:
+        return 'k8s_cluster=~".+"'
     if len(clusters) == 1:
         return f'k8s_cluster="{clusters[0]}"'
     pattern = "|".join(clusters)

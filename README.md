@@ -81,14 +81,15 @@ CHAT_MODEL=claude-sonnet-4-6
 
 ### 2. Connect logs
 
-Three interchangeable sources, set via `LOG_SOURCE`. **Default is `k8s`.**
+Three interchangeable sources, set via `LOG_SOURCE`. **Recommended default is `k8s`.**
 
-#### Option A — direct K8s (default, `LOG_SOURCE=k8s`)
+#### Option A — direct K8s (recommended, `LOG_SOURCE=k8s`)
 Reads pod logs straight from the Kubernetes API with a kubeconfig — no Loki needed.
 1. Apply the read-only ServiceAccount and mint a kubeconfig you control (see step 3 below),
    or use an existing kubeconfig.
 2. In `backend/.env`:
    ```
+   USE_MOCK=false
    LOG_SOURCE=k8s
    K8S_NAMESPACE=telikos
    KUBECONFIG=/Users/you/.kube/telikos-config   # blank = in-cluster / ~/.kube/config
@@ -112,6 +113,7 @@ The app queries Loki *through* Grafana's datasource proxy.
    ```
 3. In `backend/.env`:
    ```
+   USE_MOCK=false
    LOG_SOURCE=grafana
    GRAFANA_URL=https://grafana.example.com
    GRAFANA_TOKEN=glsa_...

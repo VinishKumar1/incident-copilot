@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 import re
 from typing import List
 
 from .config import settings
 from .models import LogEntry
 from .state import runtime
+
+log = logging.getLogger("source")
 
 # Services are split across paired namespaces by environment, e.g. iom-preprod ↔ telikos-preprod.
 _NS_PAIR_RE = re.compile(r"^(iom|telikos)-(.+)$")
@@ -104,22 +107,29 @@ async def search_key(key: str, minutes: int = 120) -> dict:
 
         return await k8s_client.search_logs(key, active_namespaces, minutes)
 
-    # loki / grafana — search all IOM namespaces across clusters.
-    # We enumerate only iom-* namespaces from Loki to keep queries targeted.
+    # loki / grafana — search every namespace Loki reports, across all clusters.
+    # SEARCH_NAMESPACE_PREFIXES narrows that set when the fan-out is too costly;
+    # blank (the default) means no prefix filter at all.
     # Each namespace is searched individually (exact match) to avoid Grafana proxy 400s
     # that occur with long pipe-separated regex patterns.
     from .loki import loki_client
 
     try:
         all_namespaces = await loki_client.list_namespaces()
-        iom_namespaces = [ns for ns in all_namespaces if ns.startswith(("iom-", "telikos-"))]
-    except Exception:
-        iom_namespaces = []
+        prefixes = tuple(settings.search_namespace_prefix_list)
+        extra_namespaces = (
+            [ns for ns in all_namespaces if ns.startswith(prefixes)]
+            if prefixes else list(all_namespaces)
+        )
+    except Exception as exc:
+        log.warning("search_key: namespace enumeration failed (%s) — "
+                    "falling back to the active namespace pair", exc)
+        extra_namespaces = []
 
-    # Always include the active namespace(s) first; add any iom-* extras
+    # Always include the active namespace(s) first; then everything else Loki reports
     seen: set = set()
     namespaces: List[str] = []
-    for ns in active_namespaces + iom_namespaces:
+    for ns in active_namespaces + extra_namespaces:
         if ns and ns not in seen:
             seen.add(ns)
             namespaces.append(ns)

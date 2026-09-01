@@ -13,9 +13,9 @@ class Settings(BaseSettings):
 
     # Log source: "k8s" (read pod logs via kubeconfig), "loki" (direct), or
     # "grafana" (Loki via Grafana datasource proxy)
-    log_source: str = "k8s"
+    log_source: str = "grafana"
 
-    k8s_namespace: str = "telikos"
+    k8s_namespace: str = "iom-preprod"
 
     # K8s direct (used when log_source=k8s)
     kubeconfig: str = ""          # path to kubeconfig; blank = in-cluster or ~/.kube/config
@@ -27,10 +27,10 @@ class Settings(BaseSettings):
     loki_url: str = "http://localhost:3100"
 
     # Grafana datasource proxy (no cluster access needed)
-    grafana_url: str = ""
+    grafana_url: str = "https://grafana.maersk.io"
     grafana_token: str = ""
-    grafana_datasource_uid: str = ""
-    loki_query: str = '{namespace="telikos"} |~ "(?i)\\b(error|exception|fatal|panic|traceback)\\b"'
+    grafana_datasource_uid: str = "loki"
+    loki_query: str = '{namespace="iom-preprod", k8s_cluster=~"ohp-np-west-1|ohp-np-north-1|ohp-prod-west-1|ohp-prod-north-1|clm-prod-westeurope-1", app!~"tfr-backend|tfr-frontend"} |~ "(?i)\\b(error|exception|fatal|panic|traceback)\\b"'
     lookback_seconds: int = 300
     poll_interval_seconds: int = 15
     max_lines_per_poll: int = 1000
@@ -41,10 +41,10 @@ class Settings(BaseSettings):
 
     # OpenAI (or Azure OpenAI — auto-detected when base_url is an azure.com host)
     openai_api_key: str = ""
-    openai_base_url: str = ""  # Azure endpoint or proxy; blank = api.openai.com
+    openai_base_url: str = "https://vibe-proxy.westeurope.dev.maersk.io/"
     openai_api_version: str = "2024-10-21"  # Azure only
-    openai_analyze_model: str = "gpt-4o"   # Azure: this is the DEPLOYMENT name
-    openai_chat_model: str = "gpt-4o-mini"  # Azure: this is the DEPLOYMENT name
+    openai_analyze_model: str = "claude-sonnet-4-6"
+    openai_chat_model: str = "claude-sonnet-4-6"
 
     @property
     def is_azure_openai(self) -> bool:
@@ -62,13 +62,26 @@ class Settings(BaseSettings):
     code_match_max_files: int = 4
     code_match_max_file_lines: int = 220
 
-    # Clusters to include in the namespace list (comma-separated).
-    # Namespaces are fetched from Loki filtered by these clusters.
-    k8s_clusters: str = "ohp-np-west-1,ohp-prod-west-1"
+    # Clusters to include in Loki queries (comma-separated).
+    # BLANK = every cluster (the selector becomes k8s_cluster=~".+"), which still
+    # satisfies Maersk Loki's 2-label minimum. Name clusters explicitly only to
+    # narrow the blast radius.
+    k8s_clusters: str = ""
 
     @property
     def k8s_cluster_list(self) -> list:
         return [c.strip() for c in self.k8s_clusters.split(",") if c.strip()]
+
+    # Namespace prefixes the key search fans out over (comma-separated), applied
+    # to the namespace list Loki reports.
+    # BLANK = every non-system namespace. Set e.g. "iom-,telikos-" to narrow the
+    # fan-out if searches get slow: cost is roughly (namespaces x time chunks)
+    # Loki queries per search.
+    search_namespace_prefixes: str = ""
+
+    @property
+    def search_namespace_prefix_list(self) -> list:
+        return [p.strip() for p in self.search_namespace_prefixes.split(",") if p.strip()]
 
     # ServiceNow integration
     snow_instance_url: str = "https://maersk.service-now.com"
@@ -92,16 +105,16 @@ class Settings(BaseSettings):
         return [d.strip() for d in self.web_search_allowed_domains.split(",") if d.strip()]
 
     # Server
-    cors_origins: str = "http://localhost:5173"
+    cors_origins: str = "https://first-responder.sit.maersk-digital.net"
 
     @property
     def cors_origin_list(self) -> List[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     # Azure AD SSO (user login)
-    sso_enabled: bool = False
-    azure_ad_tenant_id: str = ""
-    azure_ad_client_id: str = ""
+    sso_enabled: bool = True
+    azure_ad_tenant_id: str = "05d75c05-fa1a-42e7-9cf1-eb416c396f2d"
+    azure_ad_client_id: str = "fdb5c5f4-d589-495b-8b84-c0f3abad2eb0"
 
     # Analytics database — PostgreSQL in prod, SQLite fallback for local dev.
     # Set to a PostgreSQL URL in production:

@@ -8,30 +8,58 @@ set -euo pipefail
 
 ENV_FILE="$(dirname "$0")/backend/.env"
 
+# --use-current-login skips the service-principal step and mints the Grafana key
+# with whatever Azure identity `az` is already signed in as. Use it when the
+# ARM_CLIENT_SECRET is expired/wrong (AADSTS7000215) but you can `az login`
+# as yourself:  az login  &&  ./refresh_grafana_token.sh --use-current-login
+USE_CURRENT_LOGIN=false
+if [[ "${1:-}" == "--use-current-login" ]]; then
+  USE_CURRENT_LOGIN=true
+fi
+
 # ── Load ARM credentials from .env ────────────────────────────────────────────
 if [[ ! -f "$ENV_FILE" ]]; then
   echo "❌  backend/.env not found at $ENV_FILE"
   exit 1
 fi
 
-ARM_CLIENT_ID=$(grep -E "^ARM_CLIENT_ID=" "$ENV_FILE" | cut -d= -f2-)
-ARM_CLIENT_SECRET=$(grep -E "^ARM_CLIENT_SECRET=" "$ENV_FILE" | cut -d= -f2-)
-ARM_TENENT_ID=$(grep -E "^ARM_TENENT_ID=" "$ENV_FILE" | cut -d= -f2-)
+# Read a key from .env. The trailing "|| true" matters: under `set -e` a grep
+# that matches nothing exits 1 and kills the script before the check below.
+env_get() {
+  grep -E "^$1=" "$ENV_FILE" | cut -d= -f2- || true
+}
 
-if [[ -z "$ARM_CLIENT_ID" || -z "$ARM_CLIENT_SECRET" || -z "$ARM_TENENT_ID" ]]; then
-  echo "❌  ARM_CLIENT_ID / ARM_CLIENT_SECRET / ARM_TENENT_ID not set in backend/.env"
+ARM_CLIENT_ID=$(env_get ARM_CLIENT_ID)
+ARM_CLIENT_SECRET=$(env_get ARM_CLIENT_SECRET)
+# ARM_TENANT_ID is the current spelling; fall back to the legacy misspelling.
+ARM_TENANT_ID=$(env_get ARM_TENANT_ID)
+if [[ -z "$ARM_TENANT_ID" ]]; then
+  ARM_TENANT_ID=$(env_get ARM_TENENT_ID)
+fi
+
+if [[ "$USE_CURRENT_LOGIN" == false ]] \
+   && [[ -z "$ARM_CLIENT_ID" || -z "$ARM_CLIENT_SECRET" || -z "$ARM_TENANT_ID" ]]; then
+  echo "❌  ARM_CLIENT_ID / ARM_CLIENT_SECRET / ARM_TENANT_ID not set in backend/.env"
   exit 1
 fi
 
-# ── Step 1: Azure service-principal login ─────────────────────────────────────
-echo "🔐  Logging in to Azure as service principal…"
-az login \
-  --service-principal \
-  --username "$ARM_CLIENT_ID" \
-  --password "$ARM_CLIENT_SECRET" \
-  --tenant "$ARM_TENENT_ID" \
-  --allow-no-subscriptions \
-  --output none
+# ── Step 1: Azure login ───────────────────────────────────────────────────────
+if [[ "$USE_CURRENT_LOGIN" == true ]]; then
+  if ! az account show --output none 2>/dev/null; then
+    echo "❌  --use-current-login given, but az is not signed in. Run:  az login"
+    exit 1
+  fi
+  echo "🔐  Using the existing az session ($(az account show --query user.name -o tsv 2>/dev/null))…"
+else
+  echo "🔐  Logging in to Azure as service principal…"
+  az login \
+    --service-principal \
+    --username "$ARM_CLIENT_ID" \
+    --password "$ARM_CLIENT_SECRET" \
+    --tenant "$ARM_TENANT_ID" \
+    --allow-no-subscriptions \
+    --output none
+fi
 
 # ── Step 2: Get bearer token ───────────────────────────────────────────────────
 echo "🎟   Fetching bearer token…"

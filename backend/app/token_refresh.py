@@ -25,15 +25,41 @@ def get_live_token() -> str:
 
 
 def _read_env_var(name: str) -> str:
-    # First try the .env file (local dev)
-    try:
-        for line in _ENV_FILE.read_text().splitlines():
-            if line.startswith(f"{name}="):
-                return line.split("=", 1)[1].strip()
-    except Exception:
-        pass
-    # Fall back to environment variables (K8s / ConfigMap)
-    return os.environ.get(name, "")
+    aliases = [name]
+    if name == "ARM_TENANT_ID":
+        aliases.append("ARM_TENENT_ID")
+    elif name == "ARM_TENENT_ID":
+        aliases.extend(["ARM_TENANT_ID", name])
+
+    seen = set()
+    for candidate in aliases:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+
+        # First try the .env file (local dev)
+        try:
+            for line in _ENV_FILE.read_text().splitlines():
+                if line.startswith(f"{candidate}="):
+                    value = line.split("=", 1)[1].strip()
+                    if value:
+                        return value
+        except Exception:
+            pass
+
+        value = os.environ.get(candidate, "")
+        if value:
+            return value
+
+    return ""
+
+
+def _read_env_secret_aliases(names: tuple[str, ...]) -> str:
+    for name in names:
+        value = _read_env_var(name)
+        if value:
+            return value
+    return ""
 
 
 def _update_env_token(token: str) -> None:
@@ -61,9 +87,9 @@ def _update_env_token(token: str) -> None:
 async def _refresh_once() -> bool:
     """Run the full Azure → Pensieve → Grafana token flow.
     Returns True on success, False on failure."""
-    client_id = _read_env_var("ARM_CLIENT_ID")
-    client_secret = _read_env_var("ARM_CLIENT_SECRET")
-    tenant_id = _read_env_var("ARM_TENENT_ID")
+    client_id = _read_env_secret_aliases(("ARM_CLIENT_ID", "AZURE_CLIENT_ID"))
+    client_secret = _read_env_secret_aliases(("ARM_CLIENT_SECRET", "AZURE_CLIENT_SECRET"))
+    tenant_id = _read_env_secret_aliases(("ARM_TENANT_ID", "ARM_TENENT_ID", "AZURE_TENANT_ID"))
 
     if not all([client_id, client_secret, tenant_id]):
         log.warning("ARM credentials not set in .env — skipping token refresh")
