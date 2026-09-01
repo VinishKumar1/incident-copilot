@@ -181,6 +181,21 @@ class KBMatch(BaseModel):
     confidence: float
 
 
+class KBDocumentChunk(BaseModel):
+    id: str = ""
+    doc_id: str = ""
+    title: str = ""
+    service: str = ""
+    chunk_index: int = 0
+    chunk_text: str
+    source: str = ""
+
+
+class KBDocumentMatch(BaseModel):
+    chunk: KBDocumentChunk
+    confidence: float
+
+
 class Recommendation(BaseModel):
     incident_number: str = ""
     issue_id: str = ""

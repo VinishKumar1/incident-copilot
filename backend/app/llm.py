@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 from typing import List, Optional
 
 from .config import settings
 from .models import AnalyzeResponse, ChatMessage, CodeMatchFile, CodeMatchResponse, Issue
+
+log = logging.getLogger("llm")
 
 _SYSTEM = (
     "You are an SRE assistant embedded in a Kubernetes observability tool. "
@@ -487,38 +491,43 @@ class LLMClient:
         return await self._structured(prompt, _FIX_SYSTEM, _FIX_SCHEMA, _FIX_TOOL, max_tokens=2500)
 
     async def _structured(self, prompt: str, system: str, schema: dict, tool_name: str, max_tokens: int = 1500) -> dict:
-        if self._provider == "openai":
-            resp = await self._client.chat.completions.create(
-                model=settings.openai_analyze_model,
+        """Call LLM with structured output (function calling). Wraps with retry logic for rate limits."""
+        async def _make_request():
+            if self._provider == "openai":
+                resp = await self._client.chat.completions.create(
+                    model=settings.openai_analyze_model,
+                    max_tokens=max_tokens,
+                    messages=[{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+                    tools=[{"type": "function", "function": {"name": tool_name, "description": "Structured result.", "parameters": schema}}],
+                    tool_choice={"type": "function", "function": {"name": tool_name}},
+                )
+                # Track token usage
+                if resp.usage:
+                    from .analytics import record_api_usage
+                    asyncio.ensure_future(record_api_usage(
+                        "openai", settings.openai_analyze_model,
+                        resp.usage.prompt_tokens, resp.usage.completion_tokens,
+                    ))
+                msg = resp.choices[0].message
+                if msg.tool_calls:
+                    return json.loads(msg.tool_calls[0].function.arguments or "{}")
+                return {}
+
+            resp = await self._client.messages.create(
+                model=settings.analyze_model,
                 max_tokens=max_tokens,
-                messages=[{"role": "system", "content": system}, {"role": "user", "content": prompt}],
-                tools=[{"type": "function", "function": {"name": tool_name, "description": "Structured result.", "parameters": schema}}],
-                tool_choice={"type": "function", "function": {"name": tool_name}},
+                system=system,
+                tools=[{"name": tool_name, "description": "Structured result.", "input_schema": schema}],
+                tool_choice={"type": "tool", "name": tool_name},
+                messages=[{"role": "user", "content": prompt}],
             )
-            # Track token usage
-            if resp.usage:
-                from .analytics import record_api_usage
-                import asyncio
-                asyncio.ensure_future(record_api_usage(
-                    "openai", settings.openai_analyze_model,
-                    resp.usage.prompt_tokens, resp.usage.completion_tokens,
-                ))
-            msg = resp.choices[0].message
-            if msg.tool_calls:
-                return json.loads(msg.tool_calls[0].function.arguments or "{}")
+            for block in resp.content:
+                if block.type == "tool_use" and block.name == tool_name:
+                    return block.input
             return {}
-        resp = await self._client.messages.create(
-            model=settings.analyze_model,
-            max_tokens=max_tokens,
-            system=system,
-            tools=[{"name": tool_name, "description": "Structured result.", "input_schema": schema}],
-            tool_choice={"type": "tool", "name": tool_name},
-            messages=[{"role": "user", "content": prompt}],
-        )
-        for block in resp.content:
-            if block.type == "tool_use" and block.name == tool_name:
-                return block.input
-        return {}
+
+        # Retry on rate limit (429) errors
+        return await _retry_with_backoff(_make_request, max_retries=3, base_delay=1.0)
 
     # ---- OpenAI ----
     async def _chat_openai(self, history: List[ChatMessage], system: str) -> str:
@@ -605,6 +614,39 @@ class LLMClient:
             f"[mock reply] You asked{ctx}: \"{last}\". "
             "Set an API key and USE_MOCK=false for real replies."
         )
+
+
+# ── Retry logic for handling rate limits ──────────────────────────────────────
+
+async def _retry_with_backoff(coro_func, max_retries: int = 3, base_delay: float = 1.0):
+    """Retry a coroutine with exponential backoff on 429 (rate limit) errors.
+
+    Google Gemini Free Tier: 5 requests/minute per model
+    This retry logic helps gracefully handle quota exhaustion.
+    """
+    for attempt in range(max_retries):
+        try:
+            return await coro_func()
+        except Exception as exc:
+            error_str = str(exc)
+            is_rate_limit = (
+                "429" in error_str
+                or "RESOURCE_EXHAUSTED" in error_str
+                or "quota" in error_str.lower()
+                or "too many requests" in error_str.lower()
+            )
+
+            if is_rate_limit and attempt < max_retries - 1:
+                delay = base_delay * (2 ** attempt)  # Exponential: 1s, 2s, 4s
+                log.warning(
+                    f"Rate limit (429) hit on Google Gemini. "
+                    f"Retrying in {delay:.1f}s... (attempt {attempt + 1}/{max_retries})"
+                )
+                await asyncio.sleep(delay)
+                continue
+
+            # Not a rate limit error or last attempt - re-raise
+            raise
 
 
 llm_client = LLMClient()

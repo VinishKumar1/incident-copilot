@@ -5,6 +5,9 @@ pydantic==2.10.4
 pydantic-settings==2.7.1
 anthropic==0.42.0
 openai==1.59.6
+sentence-transformers==3.3.1
+einops>=0.7.0
+hf_xet>=1.0.0
 kubernetes==31.0.0
 python-dotenv==1.2.1
 python-jose[cryptography]==3.4.0

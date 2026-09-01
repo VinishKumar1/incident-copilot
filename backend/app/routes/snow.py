@@ -84,13 +84,10 @@ async def _lookup_incident_and_logs(number: str, minutes: int) -> dict[str, Any]
     number = number.strip().upper()
     if not number.startswith("INC"):
         raise HTTPException(status_code=400, detail="Incident number must start with INC")
-    if settings.use_mock:
+
+    # Use mock mode if ServiceNow is not configured OR if USE_MOCK is explicitly enabled
+    if settings.use_mock or not snow_client.configured:
         return mock_incident(number)
-    if not snow_client.configured:
-        raise HTTPException(
-            status_code=503,
-            detail="ServiceNow not configured — set SNOW_CLIENT_ID and SNOW_CLIENT_SECRET",
-        )
 
     try:
         result = await snow_client.get_incident_with_identifiers(number)
@@ -177,13 +174,13 @@ async def get_group_incidents(group: str, minutes: int = 1440, limit: int = 20) 
         raise HTTPException(status_code=400, detail="group contains unsupported characters")
     minutes = max(1, min(minutes, 43200))
     limit = max(1, min(limit, 50))
-    if settings.use_mock:
+
+    # Use mock mode if ServiceNow is not configured OR if USE_MOCK is explicitly enabled
+    if settings.use_mock or not snow_client.configured:
         payload = mock_group(group, minutes, limit, _feasible_actions)
         for item in payload.get("incidents") or []:
             await _attach_resolution(item)
         return payload
-    if not snow_client.configured:
-        raise HTTPException(status_code=503, detail="ServiceNow not configured")
 
     try:
         records = await snow_client.list_incidents_by_group(group, limit)
@@ -344,8 +341,9 @@ async def mark_used(number: str, body: MarkUsedRequest) -> dict[str, Any]:
 @router.get("/status", dependencies=[Depends(require_admin)])
 async def snow_status() -> dict[str, Any]:
     """Returns whether ServiceNow is configured."""
+    using_mock = settings.use_mock or not snow_client.configured
     return {
         "configured": settings.use_mock or snow_client.configured,
-        "auth_mode": "mock" if settings.use_mock else "client_credentials" if snow_client.configured else "none",
-        "instance_url": "synthetic fixtures" if settings.use_mock else snow_client._base if snow_client.configured else None,
+        "auth_mode": "mock" if using_mock else "client_credentials",
+        "instance_url": "synthetic fixtures" if using_mock else snow_client._base,
     }

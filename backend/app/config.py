@@ -50,6 +50,14 @@ class Settings(BaseSettings):
     def is_azure_openai(self) -> bool:
         return "azure.com" in self.openai_base_url.lower()
 
+    # Local embeddings (sentence-transformers) — runs on-device, no API key/rate limits.
+    # Recommended: nomic-ai/nomic-embed-text-v1.5 (768-dim, needs "search_query:" /
+    # "search_document:" prefixes per its model card). This is the only embedding
+    # backend used for RAG; if disabled or the model fails to load, retrieval falls
+    # back to lexical (keyword) search — no remote API key is ever used.
+    use_local_embeddings: bool = True
+    local_embedding_model: str = "nomic-ai/nomic-embed-text-v1.5"
+
     # Anthropic
     anthropic_api_key: str = ""
     analyze_model: str = "claude-opus-4-8"
@@ -58,6 +66,7 @@ class Settings(BaseSettings):
     # GitHub (code matching)
     github_token: str = ""               # blank = fall back to `gh auth token`
     github_org: str = "Maersk-Global"
+
     github_api: str = "https://api.github.com"
     code_match_max_files: int = 4
     code_match_max_file_lines: int = 220
@@ -79,7 +88,6 @@ class Settings(BaseSettings):
     snow_password: str = ""
 
     # Knowledge base (RAG) — pgvector when DATABASE_URL is set, SQLite fallback otherwise
-    embedding_model: str = "text-embedding-3-small"
     kb_confidence_threshold: float = 0.85  # cosine similarity; below this, L1 defers to L2/LLM
 
     # Approved web search (Tavily) — used by the incident-analysis fallback when the

@@ -10,8 +10,9 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from . import l2_agent
 from .l1_agent import l1_lookup
-from .l2_agent import evidence_messages, is_code_issue, l2_solution
+from .l2_agent import evidence_messages
 from .lifecycle import first_booking_id, get_booking_lifecycle
 from .models import Recommendation
 
@@ -79,6 +80,17 @@ def _heuristic_l1(lifecycle: Optional[dict[str, Any]], messages: list[str]) -> d
     )
 
 
+def _incident_history(incident: dict[str, Any], messages: list[str]) -> str:
+    """Text blob (incident description + correlated log lines) used to search the
+    booking lifecycle before the lifecycle record itself is known."""
+    parts = [
+        incident.get("short_description") or "",
+        incident.get("description") or "",
+        *messages[:8],
+    ]
+    return "\n".join(p for p in parts if p)[:4000]
+
+
 def _pattern_text(incident: dict[str, Any], messages: list[str], lifecycle: Optional[dict[str, Any]]) -> str:
     parts = [
         incident.get("short_description") or "",
@@ -94,6 +106,26 @@ def _service_hint(evidence: list[dict[str, Any]] | None) -> str:
         if group.get("service"):
             return group["service"]
     return ""
+
+
+def _context_text(incident: dict[str, Any], messages: list[str], lifecycle: Optional[dict[str, Any]]) -> str:
+    """Evidence digest the L2 agent grounds on (mock classifier looks for the
+    leading 'Incident: <number> — <summary>' line to name the summary)."""
+    lines = [
+        f"Incident: {incident.get('number', '')} — {incident.get('short_description', '')}",
+        f"Description: {incident.get('description', '')}",
+        f"Priority: {incident.get('priority', '')}  State: {incident.get('state', '')}",
+        "",
+    ]
+    if lifecycle:
+        lines.append(f"Booking lifecycle: {lifecycle.get('summary', '')}")
+    lines.append("Log evidence found across services:")
+    if messages:
+        lines.extend(f"- {m}" for m in messages[:12])
+    else:
+        lines.append("(no matching error log lines found for the extracted identifiers)")
+    return "\n".join(lines)
+
 
 
 def _recommendation_from_solution(
@@ -131,7 +163,8 @@ async def resolve_incident(
     number = (incident or {}).get("number") or ""
     messages = evidence_messages(evidence)
     booking_id = first_booking_id(identifiers)
-    lifecycle = get_booking_lifecycle(booking_id) if booking_id else None
+    history = _incident_history(incident or {}, messages)
+    lifecycle = get_booking_lifecycle(booking_id, text=history) if booking_id else None
     service = _service_hint(evidence)
     pattern = _pattern_text(incident or {}, messages, lifecycle)
 
@@ -176,17 +209,23 @@ async def resolve_incident(
             "basis": "",
         })
 
-    code_issue = is_code_issue(messages)
-    if code_issue:
-        solution = l2_solution(messages)
+    context = _context_text(incident or {}, messages, lifecycle)
+
+    if l2_agent.is_code_issue(messages):
+        solution = l2_agent.l2_solution(messages)
+        file_label = ((solution.get("code_change") or {}).get("file") or "").split("/")[-1]
         pipeline.append({
             "step": "route",
             "title": "Agent routing",
             "status": "l2",
             "detail": "Code defect detected → L2 Code Reasoning Agent",
-            "basis": (solution.get("code_change") or {}).get("file") or "",
+            "basis": file_label,
         })
-        rec = _recommendation_from_solution(number, solution, source="l2", confidence=0.93, sources_used=["logs", "l2"])
+        rec = _recommendation_from_solution(
+            number, solution, source="l2",
+            confidence=float(solution.get("final_confidence") or 0.93),
+            sources_used=["logs", "l2"] + (["lifecycle"] if lifecycle else []),
+        )
     elif rag is not None:
         solution = _l1_solution(
             rag.summary or rag.root_cause[:200],

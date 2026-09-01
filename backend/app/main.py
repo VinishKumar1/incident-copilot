@@ -10,7 +10,7 @@ from jose import jwt as _jwt
 
 from .analytics import init_analytics, record_event
 from .auth import require_user
-from .kb import init_kb
+from .kb import init_kb, seed_mock_kb
 from .config import settings
 from .poller import poll_loop
 from .routes import analytics, chat, issues, snow
@@ -23,6 +23,7 @@ logging.basicConfig(level=logging.INFO)
 async def lifespan(app: FastAPI):
     await init_analytics()
     await init_kb()
+    await seed_mock_kb()
     poll_task = asyncio.create_task(poll_loop())
     refresh_task = asyncio.create_task(token_refresh_loop())
     try:
